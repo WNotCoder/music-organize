@@ -15,9 +15,9 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Build
-dist/
-build/
+# Media files
+backend/media/
+frontend/public/
 
 # IDE
 .idea/
