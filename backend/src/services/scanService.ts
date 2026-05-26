@@ -3,6 +3,7 @@ import path from 'path';
 import { scanDirectoryRepository } from '../repositories/scanDirectoryRepository';
 import { artistRepository } from '../repositories/artistRepository';
 import { albumRepository } from '../repositories/albumRepository';
+import { songEntryRepository } from '../repositories/songEntryRepository';
 import { songRepository } from '../repositories/songRepository';
 import { settingsRepository } from '../repositories/settingsRepository';
 import { taskRepository } from '../repositories/taskRepository';
@@ -122,8 +123,8 @@ export const scanService = {
         logger.scan(`Processed ${processedFiles}/${totalFiles} (${progress}%): ${path.basename(filePath)}`);
         
         await new Promise(resolve => setTimeout(resolve, 10));
-      } catch (error) {
-        logger.error(`处理文件失败 ${filePath}:`, error);
+      } catch (error: any) {
+        logger.error(`处理文件失败 ${filePath}:`, { message: error.message, code: error.code, stack: error.stack });
       }
     }
     
@@ -156,8 +157,8 @@ export const scanService = {
   },
 
   async processFile(filePath: string, settings: Awaited<ReturnType<typeof settingsRepository['get']>>): Promise<void> {
-    const existingSong = await songRepository.getByFilePath(filePath);
-    if (existingSong) {
+    const existingFile = await songRepository.getByFilePath(filePath);
+    if (existingFile) {
       logger.debug(`文件已存在: ${filePath}`);
       return;
     }
@@ -184,18 +185,29 @@ export const scanService = {
     
     const finalPath = await organizeService.organizeFile(filePath, targetPath, settings.fileOrganizeMode);
 
+    let entry = await songEntryRepository.getByTitleArtistAlbum(tags.title, artist.id, album.id);
+    
+    if (entry) {
+      await songEntryRepository.incrementFileCount(entry.id);
+      logger.debug(`文件已存在，添加新版本: ${filePath}`);
+    } else {
+      entry = await songEntryRepository.create({
+        title: tags.title,
+        artistId: artist.id,
+        albumId: album.id,
+        trackNumber: tags.trackNumber,
+        duration: Math.round(tags.duration),
+        genre: tags.genre,
+        year: tags.year,
+      });
+      logger.debug(`创建新歌曲条目: ${tags.title}`);
+    }
+
     await songRepository.create({
-      title: tags.title,
-      artistId: artist.id,
-      artistName: artist.name,
-      albumId: album.id,
-      albumName: album.name,
-      trackNumber: tags.trackNumber,
-      duration: Math.round(tags.duration),
+      entryId: entry.id,
       filePath: finalPath,
       fileSize: fileStats.size,
-      genre: tags.genre,
-      year: tags.year,
+      duration: Math.round(tags.duration),
     });
 
     if (settings.coverArtEnabled) {
@@ -226,14 +238,14 @@ export const scanService = {
     const completedTasks = await taskRepository.getAll();
     const lastCompleted = completedTasks.find(t => t.type === 'scan' && t.status === 'completed');
     
-    const stats = await songRepository.getStats();
+    const stats = await songEntryRepository.getStats();
     
     return {
       isRunning: false,
       progress: 100,
       lastScanTime: lastCompleted?.completedAt || null,
-      scannedCount: stats.songCount,
-      organizedCount: stats.songCount,
+      scannedCount: stats.entryCount,
+      organizedCount: stats.fileCount,
     };
   },
 
@@ -268,8 +280,8 @@ export const scanService = {
       const files = await this.scanDirectory(dir.path);
       
       for (const filePath of files) {
-        const existingSong = await songRepository.getByFilePath(filePath);
-        if (existingSong) {
+        const existingFile = await songRepository.getByFilePath(filePath);
+        if (existingFile) {
           existingFiles++;
           continue;
         }
@@ -342,18 +354,27 @@ export const scanService = {
         const fileStats = fs.statSync(item.filePath);
         const finalPath = await organizeService.organizeFile(item.filePath, item.targetPath, settings.fileOrganizeMode);
 
+        let entry = await songEntryRepository.getByTitleArtistAlbum(tags.title, artist.id, album.id);
+        
+        if (entry) {
+          await songEntryRepository.incrementFileCount(entry.id);
+        } else {
+          entry = await songEntryRepository.create({
+            title: tags.title,
+            artistId: artist.id,
+            albumId: album.id,
+            trackNumber: tags.trackNumber,
+            duration: Math.round(tags.duration),
+            genre: tags.genre,
+            year: tags.year,
+          });
+        }
+
         await songRepository.create({
-          title: tags.title,
-          artistId: artist.id,
-          artistName: artist.name,
-          albumId: album.id,
-          albumName: album.name,
-          trackNumber: tags.trackNumber,
-          duration: Math.round(tags.duration),
+          entryId: entry.id,
           filePath: finalPath,
           fileSize: fileStats.size,
-          genre: tags.genre,
-          year: tags.year,
+          duration: Math.round(tags.duration),
         });
 
         if (settings.coverArtEnabled && tags.coverArt) {

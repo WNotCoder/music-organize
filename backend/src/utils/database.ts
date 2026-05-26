@@ -48,21 +48,34 @@ export async function initDatabase(): Promise<sqlite3.Database> {
         `);
 
         await runQuery(`
-          CREATE TABLE IF NOT EXISTS songs (
+          CREATE TABLE IF NOT EXISTS song_entries (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
             artist_id TEXT NOT NULL,
             album_id TEXT NOT NULL,
             track_number INTEGER,
             duration INTEGER,
-            file_path TEXT NOT NULL,
-            file_size INTEGER NOT NULL,
             genre TEXT,
             year INTEGER,
+            file_count INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (artist_id) REFERENCES artists(id),
-            FOREIGN KEY (album_id) REFERENCES albums(id)
+            FOREIGN KEY (album_id) REFERENCES albums(id),
+            UNIQUE(title, artist_id, album_id)
+          );
+        `);
+
+        await runQuery(`
+          CREATE TABLE IF NOT EXISTS songs (
+            id TEXT PRIMARY KEY,
+            entry_id TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            duration INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (entry_id) REFERENCES song_entries(id)
           );
         `);
 
@@ -132,8 +145,9 @@ export async function initDatabase(): Promise<sqlite3.Database> {
         `);
 
         await runQuery(`CREATE INDEX IF NOT EXISTS idx_albums_artist_id ON albums(artist_id);`);
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_songs_artist_id ON songs(artist_id);`);
-        await runQuery(`CREATE INDEX IF NOT EXISTS idx_songs_album_id ON songs(album_id);`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_song_entries_artist_id ON song_entries(artist_id);`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_song_entries_album_id ON song_entries(album_id);`);
+        await runQuery(`CREATE INDEX IF NOT EXISTS idx_songs_entry_id ON songs(entry_id);`);
         await runQuery(`CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_id ON playlist_items(playlist_id);`);
 
         await runQuery(`INSERT OR IGNORE INTO scan_directories (id, path, name) VALUES ('default_scan_dir', './media/downloads', '默认下载目录');`);

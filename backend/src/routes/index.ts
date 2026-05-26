@@ -26,10 +26,13 @@ router.get('/library/artists', libraryController.getArtists);
 router.get('/library/artists/:id', libraryController.getArtistById);
 router.get('/library/albums', libraryController.getAlbums);
 router.get('/library/albums/:id', libraryController.getAlbumById);
-router.get('/library/songs', libraryController.getSongs);
-router.get('/library/songs/:id', libraryController.getSongById);
-router.put('/library/songs/:id', libraryController.updateSong);
-router.delete('/library/songs/:id', libraryController.deleteSong);
+router.get('/library/entries', libraryController.getSongEntries);
+router.get('/library/entries/:id', libraryController.getSongEntryById);
+router.put('/library/entries/:id', libraryController.updateSongEntry);
+router.delete('/library/entries/:id', libraryController.deleteSongEntry);
+router.get('/library/files', libraryController.getSongFiles);
+router.get('/library/files/:id', libraryController.getSongFileById);
+router.delete('/library/files/:id', libraryController.deleteSongFile);
 router.get('/library/stats', libraryController.getStats);
 
 router.get('/search', libraryController.search);

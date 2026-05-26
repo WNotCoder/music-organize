@@ -11,7 +11,8 @@ export const albumRepository = {
                a.name as artistName, COUNT(s.id) as songCount
         FROM albums al
         JOIN artists a ON al.artist_id = a.id
-        LEFT JOIN songs s ON al.id = s.album_id
+        LEFT JOIN song_entries se ON al.id = se.album_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         GROUP BY al.id
         ORDER BY al.name
       `, (err, rows) => {
@@ -29,7 +30,8 @@ export const albumRepository = {
                a.name as artistName, COUNT(s.id) as songCount
         FROM albums al
         JOIN artists a ON al.artist_id = a.id
-        LEFT JOIN songs s ON al.id = s.album_id
+        LEFT JOIN song_entries se ON al.id = se.album_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         WHERE al.id = ?
         GROUP BY al.id
       `, [id], (err, row) => {
@@ -47,7 +49,8 @@ export const albumRepository = {
                a.name as artistName, COUNT(s.id) as songCount
         FROM albums al
         JOIN artists a ON al.artist_id = a.id
-        LEFT JOIN songs s ON al.id = s.album_id
+        LEFT JOIN song_entries se ON al.id = se.album_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         WHERE al.artist_id = ?
         GROUP BY al.id
         ORDER BY al.year DESC, al.name
@@ -66,7 +69,8 @@ export const albumRepository = {
                a.name as artistName, COUNT(s.id) as songCount
         FROM albums al
         JOIN artists a ON al.artist_id = a.id
-        LEFT JOIN songs s ON al.id = s.album_id
+        LEFT JOIN song_entries se ON al.id = se.album_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         WHERE al.name = ? AND al.artist_id = ?
         GROUP BY al.id
       `, [name, artistId], (err, row) => {
@@ -130,7 +134,8 @@ export const albumRepository = {
                a.name as artistName, COUNT(s.id) as songCount
         FROM albums al
         JOIN artists a ON al.artist_id = a.id
-        LEFT JOIN songs s ON al.id = s.album_id
+        LEFT JOIN song_entries se ON al.id = se.album_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         WHERE al.name LIKE ? OR a.name LIKE ?
         GROUP BY al.id
         ORDER BY al.name

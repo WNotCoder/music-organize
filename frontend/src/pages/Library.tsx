@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Search, Music, Users, Disc3 } from 'lucide-react';
+import { Search, Music, Users, Disc3, ChevronDown, ChevronUp, X, FileAudio } from 'lucide-react';
 import { libraryApi } from '../api/client';
-import { Artist, Album, Song } from '../types';
+import { Artist, Album, SongEntry, SongFile } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 type ViewMode = 'artists' | 'albums' | 'songs';
@@ -11,7 +11,9 @@ function Library() {
   const [searchQuery, setSearchQuery] = useState('');
   const [artists, setArtists] = useState<Artist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
-  const [songs, setSongs] = useState<Song[]>([]);
+  const [entries, setEntries] = useState<SongEntry[]>([]);
+  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
+  const [entryFiles, setEntryFiles] = useState<Record<string, SongFile[]>>({});
 
   const navigate = useNavigate();
 
@@ -28,12 +30,35 @@ function Library() {
         const result = await libraryApi.getAlbums(searchQuery || undefined);
         setAlbums(result.data);
       } else {
-        const result = await libraryApi.getSongs(0, 50, undefined, undefined);
-        setSongs(result.data);
+        const result = await libraryApi.getSongEntries(0, 50, undefined, undefined);
+        setEntries(result.data);
       }
     } catch (error) {
       console.error('Failed to fetch library data:', error);
     }
+  };
+
+  const toggleEntry = async (entryId: string) => {
+    if (expandedEntryId === entryId) {
+      setExpandedEntryId(null);
+    } else {
+      setExpandedEntryId(entryId);
+      if (!entryFiles[entryId]) {
+        const result = await libraryApi.getSongFiles(entryId);
+        setEntryFiles(prev => ({ ...prev, [entryId]: result.data }));
+      }
+    }
+  };
+
+  const handleDeleteFile = async (fileId: string, entryId: string) => {
+    await libraryApi.deleteSongFile(fileId);
+    setEntryFiles(prev => ({
+      ...prev,
+      [entryId]: prev[entryId].filter(f => f.id !== fileId)
+    }));
+    setEntries(prev => prev.map(e => 
+      e.id === entryId ? { ...e, fileCount: e.fileCount - 1 } : e
+    ));
   };
 
   const formatDuration = (seconds: number): string => {
@@ -46,6 +71,11 @@ function Library() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getBitrate = (fileSize: number, duration: number): string => {
+    const bitrateKbps = (fileSize * 8) / (duration * 1000);
+    return `${Math.round(bitrateKbps)} kbps`;
   };
 
   return (
@@ -177,40 +207,97 @@ function Library() {
                 <th className="text-left p-4 text-gray-400 font-medium">歌曲</th>
                 <th className="text-left p-4 text-gray-400 font-medium">艺术家</th>
                 <th className="text-left p-4 text-gray-400 font-medium">专辑</th>
+                <th className="text-right p-4 text-gray-400 font-medium">版本数</th>
                 <th className="text-right p-4 text-gray-400 font-medium">时长</th>
-                <th className="text-right p-4 text-gray-400 font-medium">大小</th>
+                <th className="text-right p-4 text-gray-400 font-medium">年份</th>
               </tr>
             </thead>
             <tbody>
-              {songs.length > 0 ? (
-                songs.map((song) => (
-                  <tr
-                    key={song.id}
-                    className="border-b border-purple-900/30 hover:bg-slate-800/50 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/library/album/${song.albumId}`)}
-                  >
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-[#4a1942] rounded flex items-center justify-center">
-                          <Music className="w-4 h-4 text-white" />
-                        </div>
-                        <div>
-                          <p className="text-white font-medium">{song.title}</p>
-                          {song.trackNumber && (
-                            <p className="text-gray-500 text-xs">#{song.trackNumber}</p>
+              {entries.length > 0 ? (
+                entries.map((entry) => (
+                  <>
+                    <tr
+                      key={entry.id}
+                      className="border-b border-purple-900/30 hover:bg-slate-800/50 transition-colors cursor-pointer"
+                      onClick={() => toggleEntry(entry.id)}
+                    >
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          {expandedEntryId === entry.id ? (
+                            <ChevronUp className="w-4 h-4 text-gray-400" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-gray-400" />
                           )}
+                          <div className="w-8 h-8 bg-[#4a1942] rounded flex items-center justify-center">
+                            <Music className="w-4 h-4 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-white font-medium">{entry.title}</p>
+                            {entry.trackNumber && (
+                              <p className="text-gray-500 text-xs">#{entry.trackNumber}</p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="p-4 text-gray-400">{song.artistName}</td>
-                    <td className="p-4 text-gray-400">{song.albumName}</td>
-                    <td className="p-4 text-gray-400 text-right">{formatDuration(song.duration)}</td>
-                    <td className="p-4 text-gray-400 text-right">{formatFileSize(song.fileSize)}</td>
-                  </tr>
+                      </td>
+                      <td className="p-4 text-gray-400">{entry.artistName}</td>
+                      <td className="p-4 text-gray-400">{entry.albumName}</td>
+                      <td className="p-4 text-gray-400 text-right">
+                        <span className="bg-purple-900/50 px-2 py-1 rounded text-sm">
+                          {entry.fileCount} 版本
+                        </span>
+                      </td>
+                      <td className="p-4 text-gray-400 text-right">{formatDuration(entry.duration)}</td>
+                      <td className="p-4 text-gray-400 text-right">{entry.year || '-'}</td>
+                    </tr>
+                    {expandedEntryId === entry.id && (
+                      <tr>
+                        <td colSpan={6} className="p-0">
+                          <div className="bg-slate-900/50 border-t border-purple-900/30">
+                            <div className="p-4">
+                              <h4 className="text-white font-medium mb-3 flex items-center gap-2">
+                                <FileAudio className="w-4 h-4" />
+                                可用版本 ({entryFiles[entry.id]?.length || 0})
+                              </h4>
+                              {entryFiles[entry.id] && entryFiles[entry.id].length > 0 ? (
+                                <div className="space-y-2">
+                                  {entryFiles[entry.id].map((file) => (
+                                    <div
+                                      key={file.id}
+                                      className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg hover:bg-slate-800 transition-colors"
+                                    >
+                                      <div className="flex-1">
+                                        <p className="text-white text-sm truncate">
+                                          {file.filePath.split('/').pop()}
+                                        </p>
+                                        <p className="text-gray-400 text-xs mt-1">
+                                          {formatFileSize(file.fileSize)} · {getBitrate(file.fileSize, file.duration)} · {formatDuration(file.duration)}
+                                        </p>
+                                      </div>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteFile(file.id, entry.id);
+                                        }}
+                                        className="ml-4 p-2 text-gray-400 hover:text-red-400 transition-colors"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-gray-400 text-sm">暂无文件版本</p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-gray-400">
+                  <td colSpan={6} className="text-center py-12 text-gray-400">
                     <Music className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <p>暂无歌曲</p>
                   </td>

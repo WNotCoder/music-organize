@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { artistRepository } from '../repositories/artistRepository';
 import { albumRepository } from '../repositories/albumRepository';
+import { songEntryRepository } from '../repositories/songEntryRepository';
 import { songRepository } from '../repositories/songRepository';
 
 export const libraryController = {
@@ -24,7 +25,8 @@ export const libraryController = {
       const { id } = req.params;
       const artist = await artistRepository.getById(id);
       if (artist) {
-        res.json(artist);
+        const entries = await songEntryRepository.getByArtistId(id);
+        res.json({ ...artist, songEntries: entries });
       } else {
         res.status(404).json({ error: '艺术家不存在' });
       }
@@ -56,8 +58,8 @@ export const libraryController = {
       const { id } = req.params;
       const album = await albumRepository.getById(id);
       if (album) {
-        const songs = await songRepository.getByAlbumId(id);
-        res.json({ ...album, songs });
+        const entries = await songEntryRepository.getByAlbumId(id);
+        res.json({ ...album, songEntries: entries });
       } else {
         res.status(404).json({ error: '专辑不存在' });
       }
@@ -66,18 +68,18 @@ export const libraryController = {
     }
   },
 
-  async getSongs(req: Request, res: Response) {
+  async getSongEntries(req: Request, res: Response) {
     try {
       const { page = 0, limit = 20, artistId, albumId } = req.query;
       
       if (artistId) {
-        const songs = await songRepository.getByArtistId(artistId as string);
-        res.json({ data: songs, total: songs.length, page: 0, limit: songs.length });
+        const entries = await songEntryRepository.getByArtistId(artistId as string);
+        res.json({ data: entries, total: entries.length, page: 0, limit: entries.length });
       } else if (albumId) {
-        const songs = await songRepository.getByAlbumId(albumId as string);
-        res.json({ data: songs, total: songs.length, page: 0, limit: songs.length });
+        const entries = await songEntryRepository.getByAlbumId(albumId as string);
+        res.json({ data: entries, total: entries.length, page: 0, limit: entries.length });
       } else {
-        const result = await songRepository.getAll(parseInt(page as string), parseInt(limit as string));
+        const result = await songEntryRepository.getAll(parseInt(page as string), parseInt(limit as string));
         res.json(result);
       }
     } catch (error) {
@@ -85,12 +87,13 @@ export const libraryController = {
     }
   },
 
-  async getSongById(req: Request, res: Response) {
+  async getSongEntryById(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const song = await songRepository.getById(id);
-      if (song) {
-        res.json(song);
+      const entry = await songEntryRepository.getById(id);
+      if (entry) {
+        const files = await songRepository.getByEntryId(id);
+        res.json({ ...entry, files });
       } else {
         res.status(404).json({ error: '歌曲不存在' });
       }
@@ -99,13 +102,13 @@ export const libraryController = {
     }
   },
 
-  async updateSong(req: Request, res: Response) {
+  async updateSongEntry(req: Request, res: Response) {
     try {
       const { id } = req.params;
       const updates = req.body;
-      const song = await songRepository.update(id, updates);
-      if (song) {
-        res.json(song);
+      const entry = await songEntryRepository.update(id, updates);
+      if (entry) {
+        res.json(entry);
       } else {
         res.status(404).json({ error: '歌曲不存在' });
       }
@@ -114,14 +117,65 @@ export const libraryController = {
     }
   },
 
-  async deleteSong(req: Request, res: Response) {
+  async deleteSongEntry(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const success = await songRepository.delete(id);
+      await songRepository.deleteByEntryId(id);
+      const success = await songEntryRepository.delete(id);
       if (success) {
         res.json({ success: true });
       } else {
         res.status(404).json({ success: false, error: '歌曲不存在' });
+      }
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  },
+
+  async getSongFiles(req: Request, res: Response) {
+    try {
+      const { entryId } = req.query;
+      
+      if (entryId) {
+        const files = await songRepository.getByEntryId(entryId as string);
+        res.json({ data: files, total: files.length, page: 0, limit: files.length });
+      } else {
+        const result = await songRepository.getAll();
+        res.json(result);
+      }
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  },
+
+  async getSongFileById(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const file = await songRepository.getById(id);
+      if (file) {
+        res.json(file);
+      } else {
+        res.status(404).json({ error: '文件不存在' });
+      }
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  },
+
+  async deleteSongFile(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const file = await songRepository.getById(id);
+      if (!file) {
+        return res.status(404).json({ success: false, error: '文件不存在' });
+      }
+      
+      const success = await songRepository.delete(id);
+      if (success) {
+        await songEntryRepository.decrementFileCount(file.entryId);
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ success: false, error: '文件不存在' });
       }
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -136,10 +190,10 @@ export const libraryController = {
         return res.status(400).json({ error: '查询参数是必需的' });
       }
 
-      const results: { artists: unknown[]; albums: unknown[]; songs: unknown[] } = {
+      const results: { artists: unknown[]; albums: unknown[]; songEntries: unknown[] } = {
         artists: [],
         albums: [],
-        songs: [],
+        songEntries: [],
       };
 
       if (type === 'all' || type === 'artist') {
@@ -149,7 +203,7 @@ export const libraryController = {
         results.albums = await albumRepository.search(query as string);
       }
       if (type === 'all' || type === 'song') {
-        results.songs = await songRepository.search(query as string, parseInt(limit as string));
+        results.songEntries = await songEntryRepository.search(query as string, parseInt(limit as string));
       }
 
       res.json(results);
@@ -160,7 +214,7 @@ export const libraryController = {
 
   async getStats(req: Request, res: Response) {
     try {
-      const stats = await songRepository.getStats();
+      const stats = await songEntryRepository.getStats();
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });

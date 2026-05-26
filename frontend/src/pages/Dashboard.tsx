@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Music, Users, Disc3, Clock, Play, Activity, RefreshCw } from 'lucide-react';
+import { Music, Users, Disc3, Clock, Play, Activity, RefreshCw, FileAudio } from 'lucide-react';
 import { libraryApi, scanApi } from '../api/client';
-import { LibraryStats, ScanStatus, Song } from '../types';
+import { LibraryStats, ScanStatus, SongEntry } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 function Dashboard() {
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
-  const [recentSongs, setRecentSongs] = useState<Song[]>([]);
+  const [recentEntries, setRecentEntries] = useState<SongEntry[]>([]);
 
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchStats();
     fetchScanStatus();
-    fetchRecentSongs();
+    fetchRecentEntries();
   }, []);
 
   const fetchStats = async () => {
@@ -35,12 +35,12 @@ function Dashboard() {
     }
   };
 
-  const fetchRecentSongs = async () => {
+  const fetchRecentEntries = async () => {
     try {
-      const result = await libraryApi.getSongs(0, 5);
-      setRecentSongs(result.data);
+      const result = await libraryApi.getSongEntries(0, 5);
+      setRecentEntries(result.data);
     } catch (error) {
-      console.error('Failed to fetch recent songs:', error);
+      console.error('Failed to fetch recent entries:', error);
     }
   };
 
@@ -61,10 +61,16 @@ function Dashboard() {
 
   const statCards = [
     {
-      title: '音乐总数',
-      value: stats?.songCount || 0,
+      title: '歌曲条目',
+      value: stats?.entryCount || 0,
       icon: Music,
       color: 'bg-blue-600',
+    },
+    {
+      title: '文件总数',
+      value: stats?.fileCount || 0,
+      icon: FileAudio,
+      color: 'bg-orange-600',
     },
     {
       title: '歌手数量',
@@ -89,7 +95,7 @@ function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
@@ -153,11 +159,11 @@ function Dashboard() {
             
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-gray-400">已扫描</p>
+                <p className="text-gray-400">已扫描歌曲</p>
                 <p className="text-white font-semibold">{scanStatus.scannedCount.toLocaleString()}</p>
               </div>
               <div>
-                <p className="text-gray-400">已整理</p>
+                <p className="text-gray-400">已整理文件</p>
                 <p className="text-white font-semibold">{scanStatus.organizedCount.toLocaleString()}</p>
               </div>
             </div>
@@ -175,23 +181,30 @@ function Dashboard() {
       <div className="card p-6">
         <h2 className="text-lg font-semibold text-white mb-4">最近添加</h2>
         <div className="space-y-3">
-          {recentSongs.length > 0 ? (
-            recentSongs.map((song) => (
+          {recentEntries.length > 0 ? (
+            recentEntries.map((entry) => (
               <div
-                key={song.id}
+                key={entry.id}
                 className="flex items-center gap-4 p-3 bg-[#0f0f1a] rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                onClick={() => navigate(`/library/album/${song.albumId}`)}
+                onClick={() => navigate(`/library/album/${entry.albumId}`)}
               >
                 <div className="w-10 h-10 bg-[#4a1942] rounded-lg flex items-center justify-center">
                   <Music className="w-5 h-5 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white font-medium truncate">{song.title}</p>
-                  <p className="text-gray-400 text-sm">{song.artistName} - {song.albumName}</p>
+                  <p className="text-white font-medium truncate">{entry.title}</p>
+                  <p className="text-gray-400 text-sm">{entry.artistName} - {entry.albumName}</p>
                 </div>
-                <span className="text-gray-400 text-sm">
-                  {formatDuration(song.duration)}
-                </span>
+                <div className="flex items-center gap-3">
+                  {entry.fileCount > 1 && (
+                    <span className="bg-purple-900/50 px-2 py-1 rounded text-xs text-gray-400">
+                      {entry.fileCount} 版本
+                    </span>
+                  )}
+                  <span className="text-gray-400 text-sm">
+                    {formatDuration(entry.duration)}
+                  </span>
+                </div>
               </div>
             ))
           ) : (

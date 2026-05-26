@@ -17,7 +17,7 @@ export interface Album {
   createdAt: string;
 }
 
-export interface Song {
+export interface SongEntry {
   id: string;
   title: string;
   artistId: string;
@@ -26,10 +26,18 @@ export interface Song {
   albumName: string;
   trackNumber: number | null;
   duration: number;
-  filePath: string;
-  fileSize: number;
   genre: string | null;
   year: number | null;
+  fileCount: number;
+  createdAt: string;
+}
+
+export interface SongFile {
+  id: string;
+  entryId: string;
+  filePath: string;
+  fileSize: number;
+  duration: number;
   createdAt: string;
 }
 

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { artistRepository } from '../repositories/artistRepository';
 import { albumRepository } from '../repositories/albumRepository';
+import { songEntryRepository } from '../repositories/songEntryRepository';
 import { songRepository } from '../repositories/songRepository';
 import { playlistRepository } from '../repositories/playlistRepository';
 import { settingsRepository } from '../repositories/settingsRepository';
@@ -130,7 +131,7 @@ router.get('/getAlbum.view', async (req: Request, res: Response) => {
     return res.status(404).send('Album not found');
   }
   
-  const songs = await songRepository.getByAlbumId(album.id);
+  const entries = await songEntryRepository.getByAlbumId(album.id);
   
   const result = {
     album: {
@@ -140,17 +141,15 @@ router.get('/getAlbum.view', async (req: Request, res: Response) => {
       artistId: album.artistId,
       year: album.year,
       coverArt: album.id,
-      song: songs.map(song => ({
-        id: song.id,
-        title: song.title,
-        track: song.trackNumber,
-        duration: song.duration,
-        artist: song.artistName,
-        artistId: song.artistId,
-        album: song.albumName,
-        albumId: song.albumId,
-        path: song.filePath,
-        size: song.fileSize,
+      song: entries.map(entry => ({
+        id: entry.id,
+        title: entry.title,
+        track: entry.trackNumber,
+        duration: entry.duration,
+        artist: entry.artistName,
+        artistId: entry.artistId,
+        album: entry.albumName,
+        albumId: entry.albumId,
       }))
     }
   };
@@ -165,24 +164,27 @@ router.get('/getSong.view', async (req: Request, res: Response) => {
   }
   
   const { id } = req.query;
-  const song = await songRepository.getById(id as string);
+  const entry = await songEntryRepository.getById(id as string);
   
-  if (!song) {
+  if (!entry) {
     return res.status(404).send('Song not found');
   }
   
+  const files = await songRepository.getByEntryId(id as string);
+  const file = files[0];
+  
   const result = {
     song: {
-      id: song.id,
-      title: song.title,
-      track: song.trackNumber,
-      duration: song.duration,
-      artist: song.artistName,
-      artistId: song.artistId,
-      album: song.albumName,
-      albumId: song.albumId,
-      path: song.filePath,
-      size: song.fileSize,
+      id: entry.id,
+      title: entry.title,
+      track: entry.trackNumber,
+      duration: entry.duration,
+      artist: entry.artistName,
+      artistId: entry.artistId,
+      album: entry.albumName,
+      albumId: entry.albumId,
+      path: file?.filePath || '',
+      size: file?.fileSize || 0,
     }
   };
   
@@ -220,13 +222,22 @@ router.get('/stream.view', async (req: Request, res: Response) => {
   }
   
   const { id } = req.query;
-  const song = await songRepository.getById(id as string);
   
-  if (!song) {
-    return res.status(404).send('Song not found');
+  let file = await songRepository.getById(id as string);
+  
+  if (!file) {
+    const entries = await songEntryRepository.getById(id as string);
+    if (!entries) {
+      return res.status(404).send('Song not found');
+    }
+    const files = await songRepository.getByEntryId(id as string);
+    if (files.length === 0) {
+      return res.status(404).send('No files found for song');
+    }
+    file = files[0];
   }
   
-  const filePath = song.filePath;
+  const filePath = file.filePath;
   
   if (!fs.existsSync(filePath)) {
     return res.status(404).send('File not found');
@@ -242,7 +253,7 @@ router.get('/stream.view', async (req: Request, res: Response) => {
   }[ext] || 'audio/mpeg';
   
   res.set('Content-Type', contentType);
-  res.set('Content-Length', song.fileSize.toString());
+  res.set('Content-Length', file.fileSize.toString());
   
   const stream = fs.createReadStream(filePath);
   stream.pipe(res);
@@ -257,7 +268,7 @@ router.get('/search.view', async (req: Request, res: Response) => {
   
   const artists = await artistRepository.search(query as string);
   const albums = await albumRepository.search(query as string);
-  const songs = await songRepository.search(query as string, 20);
+  const entries = await songEntryRepository.search(query as string, 20);
   
   const result = {
     searchResult: {
@@ -269,14 +280,14 @@ router.get('/search.view', async (req: Request, res: Response) => {
         artistId: al.artistId,
         coverArt: al.id,
       })),
-      song: songs.map(s => ({
-        id: s.id,
-        title: s.title,
-        artist: s.artistName,
-        artistId: s.artistId,
-        album: s.albumName,
-        albumId: s.albumId,
-        duration: s.duration,
+      song: entries.map(entry => ({
+        id: entry.id,
+        title: entry.title,
+        artist: entry.artistName,
+        artistId: entry.artistId,
+        album: entry.albumName,
+        albumId: entry.albumId,
+        duration: entry.duration,
       }))
     }
   };

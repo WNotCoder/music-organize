@@ -11,7 +11,8 @@ export const artistRepository = {
                COUNT(s.id) as songCount
         FROM artists a
         LEFT JOIN albums al ON a.id = al.artist_id
-        LEFT JOIN songs s ON al.id = s.album_id
+        LEFT JOIN song_entries se ON al.id = se.artist_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         GROUP BY a.id
         ORDER BY a.name
       `, (err, rows) => {
@@ -29,7 +30,8 @@ export const artistRepository = {
                COUNT(s.id) as songCount
         FROM artists a
         LEFT JOIN albums al ON a.id = al.artist_id
-        LEFT JOIN songs s ON al.id = s.artist_id
+        LEFT JOIN song_entries se ON al.id = se.artist_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         WHERE a.id = ?
         GROUP BY a.id
       `, [id], (err, row) => {
@@ -47,7 +49,8 @@ export const artistRepository = {
                COUNT(s.id) as songCount
         FROM artists a
         LEFT JOIN albums al ON a.id = al.artist_id
-        LEFT JOIN songs s ON al.id = s.album_id
+        LEFT JOIN song_entries se ON al.id = se.artist_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         WHERE a.name = ?
         GROUP BY a.id
       `, [name], (err, row) => {
@@ -79,7 +82,8 @@ export const artistRepository = {
                COUNT(s.id) as songCount
         FROM artists a
         LEFT JOIN albums al ON a.id = al.artist_id
-        LEFT JOIN songs s ON al.id = s.artist_id
+        LEFT JOIN song_entries se ON al.id = se.artist_id
+        LEFT JOIN songs s ON se.id = s.entry_id
         WHERE a.name LIKE ?
         GROUP BY a.id
         ORDER BY a.name

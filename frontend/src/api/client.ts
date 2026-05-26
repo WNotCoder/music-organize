@@ -2,7 +2,8 @@ import axios from 'axios';
 import { 
   Artist, 
   Album, 
-  Song, 
+  SongEntry,
+  SongFile,
   Playlist, 
   ScanDirectory, 
   Settings, 
@@ -74,26 +75,42 @@ export const libraryApi = {
     return response.data;
   },
   
-  getSongs: async (page = 0, limit = 20, artistId?: string, albumId?: string): Promise<{ data: Song[]; total: number; page: number; limit: number }> => {
+  getSongEntries: async (page = 0, limit = 20, artistId?: string, albumId?: string): Promise<{ data: SongEntry[]; total: number; page: number; limit: number }> => {
     const params: Record<string, string | number> = { page, limit };
     if (artistId) params.artistId = artistId;
     if (albumId) params.albumId = albumId;
-    const response = await api.get('/library/songs', { params });
+    const response = await api.get('/library/entries', { params });
     return response.data;
   },
   
-  getSongById: async (id: string): Promise<Song> => {
-    const response = await api.get(`/library/songs/${id}`);
+  getSongEntryById: async (id: string): Promise<{ entry: SongEntry; files: SongFile[] }> => {
+    const response = await api.get(`/library/entries/${id}`);
     return response.data;
   },
   
-  updateSong: async (id: string, data: Partial<Song>): Promise<Song> => {
-    const response = await api.put(`/library/songs/${id}`, data);
+  updateSongEntry: async (id: string, data: Partial<SongEntry>): Promise<SongEntry> => {
+    const response = await api.put(`/library/entries/${id}`, data);
     return response.data;
   },
   
-  deleteSong: async (id: string): Promise<{ success: boolean }> => {
-    const response = await api.delete(`/library/songs/${id}`);
+  deleteSongEntry: async (id: string): Promise<{ success: boolean }> => {
+    const response = await api.delete(`/library/entries/${id}`);
+    return response.data;
+  },
+  
+  getSongFiles: async (entryId?: string): Promise<{ data: SongFile[]; total: number; page: number; limit: number }> => {
+    const params = entryId ? { entryId } : {};
+    const response = await api.get('/library/files', { params });
+    return response.data;
+  },
+  
+  getSongFileById: async (id: string): Promise<SongFile> => {
+    const response = await api.get(`/library/files/${id}`);
+    return response.data;
+  },
+  
+  deleteSongFile: async (id: string): Promise<{ success: boolean }> => {
+    const response = await api.delete(`/library/files/${id}`);
     return response.data;
   },
   

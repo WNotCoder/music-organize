@@ -1,29 +1,31 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Users, Disc3, Music } from 'lucide-react';
 import { libraryApi } from '../api/client';
-import { Artist, Album, Song } from '../types';
+import { Artist, Album, SongEntry } from '../types';
 import { useParams, useNavigate } from 'react-router-dom';
+
+interface ArtistWithEntries extends Artist {
+  songEntries?: SongEntry[];
+}
 
 function ArtistDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   
-  const [artist, setArtist] = useState<Artist | null>(null);
+  const [artist, setArtist] = useState<ArtistWithEntries | null>(null);
   const [albums, setAlbums] = useState<Album[]>([]);
-  const [songs, setSongs] = useState<Song[]>([]);
 
   useEffect(() => {
     if (id) {
       fetchArtist();
       fetchAlbums();
-      fetchSongs();
     }
   }, [id]);
 
   const fetchArtist = async () => {
     try {
       const data = await libraryApi.getArtistById(id!);
-      setArtist(data);
+      setArtist(data as ArtistWithEntries);
     } catch (error) {
       console.error('Failed to fetch artist:', error);
     }
@@ -35,15 +37,6 @@ function ArtistDetail() {
       setAlbums(result.data);
     } catch (error) {
       console.error('Failed to fetch albums:', error);
-    }
-  };
-
-  const fetchSongs = async () => {
-    try {
-      const result = await libraryApi.getSongs(0, 50, id!);
-      setSongs(result.data);
-    } catch (error) {
-      console.error('Failed to fetch songs:', error);
     }
   };
 
@@ -133,23 +126,30 @@ function ArtistDetail() {
           <h2 className="text-xl font-semibold text-white">歌曲</h2>
         </div>
         <div className="divide-y divide-purple-900/30">
-          {songs.length > 0 ? (
-            songs.map((song) => (
+          {artist?.songEntries?.length && artist.songEntries.length > 0 ? (
+            artist.songEntries.map((entry) => (
               <div
-                key={song.id}
+                key={entry.id}
                 className="flex items-center justify-between p-4 hover:bg-slate-800/50 transition-colors cursor-pointer"
-                onClick={() => navigate(`/library/album/${song.albumId}`)}
+                onClick={() => navigate(`/library/album/${entry.albumId}`)}
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-[#4a1942] rounded-lg flex items-center justify-center">
                     <Music className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <p className="text-white font-medium">{song.title}</p>
-                    <p className="text-gray-400 text-sm">{song.albumName}</p>
+                    <p className="text-white font-medium">{entry.title}</p>
+                    <p className="text-gray-400 text-sm">{entry.albumName}</p>
                   </div>
                 </div>
-                <span className="text-gray-400">{formatDuration(song.duration)}</span>
+                <div className="flex items-center gap-4">
+                  {entry.fileCount > 1 && (
+                    <span className="bg-purple-900/50 px-2 py-1 rounded text-sm text-gray-400">
+                      {entry.fileCount} 版本
+                    </span>
+                  )}
+                  <span className="text-gray-400">{formatDuration(entry.duration)}</span>
+                </div>
               </div>
             ))
           ) : (
