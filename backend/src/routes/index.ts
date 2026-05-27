@@ -5,6 +5,8 @@ import { playlistController } from '../controllers/playlistController';
 import { settingsController } from '../controllers/settingsController';
 import { taskController } from '../controllers/taskController';
 import { scrapeController } from '../controllers/scrapeController';
+import { scraperController } from '../controllers/scraperController';
+import { systemController } from '../controllers/systemController';
 
 const router = Router();
 
@@ -21,6 +23,14 @@ router.get('/scrape/sources', scrapeController.getAvailableSources);
 router.post('/scrape/preview', scrapeController.previewScrape);
 router.post('/scrape/execute', scrapeController.executeScrape);
 router.post('/scrape/single', scrapeController.scrapeSingle);
+router.post('/scrape/fix-covers', scrapeController.fixMissingCovers);
+
+router.get('/scrapers', scraperController.getScrapers);
+router.get('/scrapers/:name', scraperController.getScraper);
+router.put('/scrapers/:name', scraperController.updateScraper);
+router.delete('/scrapers/:name', scraperController.resetScraper);
+router.put('/scrapers/usage', scraperController.updateScraperUsage);
+router.put('/scrapers/conflict-resolution', scraperController.updateConflictResolution);
 
 router.get('/library/artists', libraryController.getArtists);
 router.get('/library/artists/:id', libraryController.getArtistById);
@@ -51,5 +61,8 @@ router.put('/settings', settingsController.updateSettings);
 router.get('/tasks', taskController.getTasks);
 router.get('/tasks/:id', taskController.getTaskById);
 router.delete('/tasks/:id', taskController.deleteTask);
+
+router.post('/system/stop-tasks', systemController.stopAllTasks);
+router.post('/system/shutdown', systemController.shutdownServer);
 
 export default router;

@@ -20,16 +20,24 @@ flowchart TB
         H[扫描服务]
         I[标签服务]
         J[整理服务]
+        K[刮削服务]
     end
     
     subgraph Data["数据层"]
-        K[(SQLite 数据库)]
-        L[音乐文件存储]
+        L[(SQLite 数据库)]
+        M[音乐文件存储]
     end
     
     subgraph External["外部服务"]
-        M[MusicBrainz API]
-        N[远程播放器]
+        N[Acoustid API]
+        O[MusicBrainz API]
+        P[网易云音乐 API]
+        Q[QQ音乐 API]
+        R[Spotify API]
+        S[iTunes API]
+        T[咪咕音乐 API]
+        U[酷狗音乐 API]
+        V[远程播放器]
     end
     
     A --> F
@@ -40,14 +48,23 @@ flowchart TB
     F --> H
     F --> I
     F --> J
-    H --> K
+    F --> K
+    H --> L
+    I --> L
     I --> K
-    I --> M
-    J --> K
+    K --> N
+    K --> O
+    K --> P
+    K --> Q
+    K --> R
+    K --> S
+    K --> T
+    K --> U
     J --> L
-    N --> G
-    G --> K
+    J --> M
+    V --> G
     G --> L
+    G --> M
 ```
 
 ---
@@ -65,6 +82,7 @@ flowchart TB
 | 后端 | TypeScript | 5+ | 类型安全 |
 | 数据库 | SQLite | 3+ | 轻量级嵌入式数据库 |
 | 文件处理 | music-metadata | 7+ | 音乐标签读取 |
+| 音频指纹 | chromaprint (fpcalc) | 1.5+ | 生成音频指纹用于 Acoustid 匹配 |
 | API | Subsonic API | 1.16+ | 兼容协议版本 |
 
 ---
@@ -107,6 +125,10 @@ flowchart TB
 | `/api/playlists/:id` | DELETE | 删除播放列表 |
 | `/api/settings` | GET | 获取系统设置 |
 | `/api/settings` | PUT | 更新系统设置 |
+| `/api/scrapers` | GET | 获取所有刮削器配置 |
+| `/api/scrapers/:name` | GET | 获取单个刮削器配置 |
+| `/api/scrapers/:name` | PUT | 更新单个刮削器配置 |
+| `/api/scrapers/:name` | DELETE | 重置刮削器配置为默认值 |
 
 ### 3.3 Subsonic API 路由
 
@@ -244,6 +266,29 @@ interface SearchResult {
 #### GET/PUT /api/settings
 **响应/请求:**
 ```typescript
+interface ScraperConfig {
+  name: string;
+  enabled: boolean;
+  priority: number;
+  requestInterval: number; // 毫秒
+  timeout: number; // 超时时间（毫秒）
+  retryCount: number; // 重试次数
+  apiParams: Record<string, string>; // 自定义API参数
+}
+
+interface ScraperUsageConfig {
+  tags: string[]; // 用于歌曲标签的刮削器名称列表
+  cover: string[]; // 用于封面的刮削器名称列表
+  lyrics: string[]; // 用于歌词的刮削器名称列表
+}
+
+interface ConflictResolution {
+  strategy: 'original' | 'scraped' | 'manual'; // 信息冲突时的处理策略
+  // original: 优先使用原文件标签
+  // scraped: 优先使用刮削数据
+  // manual: 手动选择
+}
+
 interface Settings {
   storagePath: string;
   scanDirectories: { id: string; path: string; name: string }[];
@@ -254,7 +299,81 @@ interface Settings {
   subsonicUsername: string;
   subsonicPassword: string;
   fileStructureTemplate: string; // 如: {artist}/{album}/{title}
+  fileNameTemplate: string; // 如: {trackNumber} - {title}
+  fileOrganizeMode: 'copy' | 'move' | 'rename';
   coverArtEnabled: boolean;
+  traditionalToSimplified: boolean;
+  artistSeparator: string;
+  scrapers: ScraperConfig[];
+  scraperUsage: ScraperUsageConfig;
+  conflictResolution: ConflictResolution;
+}
+```
+
+### 4.5 刮削器管理 API
+
+#### GET /api/scrapers
+**响应:**
+```typescript
+interface ScraperConfig {
+  name: string;
+  enabled: boolean;
+  priority: number;
+  requestInterval: number;
+  timeout: number;
+  retryCount: number;
+  apiParams: Record<string, string>;
+}
+
+interface ScraperListResponse {
+  data: ScraperConfig[];
+  scraperUsage: ScraperUsageConfig;
+  conflictResolution: ConflictResolution;
+}
+```
+
+#### GET /api/scrapers/:name
+**响应:**
+```typescript
+interface ScraperDetailResponse {
+  name: string;
+  enabled: boolean;
+  priority: number;
+  requestInterval: number;
+  timeout: number;
+  retryCount: number;
+  apiParams: Record<string, string>;
+  supportedDataTypes: ('tags' | 'cover' | 'lyrics')[];
+}
+```
+
+#### PUT /api/scrapers/:name
+**请求:**
+```typescript
+interface UpdateScraperRequest {
+  enabled?: boolean;
+  priority?: number;
+  requestInterval?: number;
+  timeout?: number;
+  retryCount?: number;
+  apiParams?: Record<string, string>;
+}
+```
+
+**响应:**
+```typescript
+interface UpdateScraperResponse {
+  success: boolean;
+  message: string;
+}
+```
+
+#### DELETE /api/scrapers/:name
+**响应:**
+```typescript
+interface ResetScraperResponse {
+  success: boolean;
+  message: string;
 }
 ```
 
@@ -402,7 +521,14 @@ erDiagram
         subsonic_username TEXT
         subsonic_password TEXT
         file_structure_template TEXT
+        file_name_template TEXT
+        file_organize_mode TEXT
         cover_art_enabled INTEGER
+        traditional_to_simplified INTEGER
+        artist_separator TEXT
+        scrapers_config TEXT
+        scraper_usage_config TEXT
+        conflict_resolution TEXT
         updated_at TEXT
     }
 ```
@@ -480,7 +606,14 @@ CREATE TABLE IF NOT EXISTS settings (
     subsonic_username TEXT NOT NULL DEFAULT 'admin',
     subsonic_password TEXT NOT NULL DEFAULT 'admin',
     file_structure_template TEXT NOT NULL DEFAULT '{artist}/{album}/{title}',
+    file_name_template TEXT NOT NULL DEFAULT '{trackNumber} - {title}',
+    file_organize_mode TEXT NOT NULL DEFAULT 'move',
     cover_art_enabled INTEGER NOT NULL DEFAULT 1,
+    traditional_to_simplified INTEGER NOT NULL DEFAULT 1,
+    artist_separator TEXT NOT NULL DEFAULT '&',
+    scrapers_config TEXT NOT NULL DEFAULT '[{"name":"netease","enabled":true,"priority":1,"requestInterval":1000,"timeout":10000,"retryCount":3,"apiParams":{}},{"name":"qqmusic","enabled":true,"priority":2,"requestInterval":1000,"timeout":10000,"retryCount":3,"apiParams":{}},{"name":"kugou","enabled":true,"priority":3,"requestInterval":1000,"timeout":10000,"retryCount":3,"apiParams":{}},{"name":"migu","enabled":true,"priority":4,"requestInterval":1000,"timeout":10000,"retryCount":3,"apiParams":{}},{"name":"musicbrainz","enabled":true,"priority":5,"requestInterval":1000,"timeout":15000,"retryCount":3,"apiParams":{}},{"name":"spotify","enabled":false,"priority":6,"requestInterval":2000,"timeout":15000,"retryCount":3,"apiParams":{}},{"name":"itunes","enabled":false,"priority":7,"requestInterval":2000,"timeout":15000,"retryCount":3,"apiParams":{}}]',
+    scraper_usage_config TEXT NOT NULL DEFAULT '{"tags":["netease","qqmusic","kugou","migu","musicbrainz"],"cover":["netease","qqmusic","kugou","migu"],"lyrics":["netease","qqmusic","kugou","migu"]}',
+    conflict_resolution TEXT NOT NULL DEFAULT '{"strategy":"scraped"}',
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -513,11 +646,59 @@ CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_id ON playlist_items(play
 **流程**:
 1. 使用 music-metadata 读取文件现有标签
 2. 如果标签缺失，从文件名解析（格式：歌手 - 歌名）
-3. 调用 MusicBrainz API 补充缺失信息
+3. 调用刮削服务补充缺失信息
 4. 下载专辑封面图片
 5. 返回完整标签信息
 
-### 7.3 整理服务
+### 7.3 Acoustid 服务
+
+**职责**: 使用 Acoustid API 进行音乐指纹匹配
+
+**流程**:
+1. 提取音乐文件的音频指纹
+2. 调用 Acoustid API 进行指纹匹配
+3. 获取匹配结果中的标题、艺术家、专辑信息
+4. 判断是否三个信息全部匹配成功
+5. 返回匹配状态和标准化的基础信息
+
+**参考文档**: https://acoustid.org/webservice
+
+### 7.4 刮削服务
+
+**职责**: 从多个音乐平台 API 获取标签信息
+
+**支持的刮削器**:
+- **Acoustid**: 提供音乐指纹匹配，获取标题、艺术家、专辑（已集成到独立服务）
+- **QQ音乐**: 提供歌曲信息、专辑封面、歌词
+- **Spotify**: 提供国际歌曲信息（需要 API Key）
+- **iTunes**: 提供苹果音乐库信息
+- **咪咕音乐**: 提供歌曲信息、专辑封面、歌词
+- **酷狗音乐**: 提供歌曲信息、专辑封面、歌词
+- **网易云音乐**: 提供歌曲信息、专辑封面、歌词（已实现）
+- **MusicBrainz**: 提供标准化音乐元数据（已实现）
+- **豆瓣音乐**: 提供歌曲信息（已实现）
+
+**新刮削流程**:
+1. **第一步**: 使用 Acoustid 进行音乐指纹匹配，获取标题、艺术家、专辑三个基础信息
+2. **第二步**: 判断匹配结果
+   - 如果三个信息全部匹配成功：使用标题+艺术家+专辑作为检索条件
+   - 如果未能全部匹配：仅使用标题+艺术家作为检索条件
+3. **第三步**: 根据配置的刮削器组合，调用相应的刮削器补全其他标签信息（流派、年份、音轨号等）
+4. **第四步**: 下载专辑封面（使用配置的封面刮削器）
+5. **第五步**: 下载歌词（使用配置的歌词刮削器）
+6. **第六步**: 比对原文件标签与刮削数据，根据冲突处理策略进行合并
+
+**配置项**:
+- 启用/禁用每个刮削器
+- 刮削器优先级顺序
+- 请求间隔时间（避免被限流）
+- 超时时间
+- 重试次数
+- 自定义 API 参数
+- 数据类型配置（标签/封面/歌词分别使用哪些刮削器）
+- 信息冲突处理策略（优先使用原文件/优先使用刮削数据）
+
+### 7.5 整理服务
 
 **职责**: 将音乐文件整理到结构化目录
 
@@ -528,7 +709,7 @@ CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_id ON playlist_items(play
 4. 复制或移动文件到目标位置
 5. 处理重复文件
 
-### 7.4 Subsonic 服务
+### 7.6 Subsonic 服务
 
 **职责**: 实现 Subsonic API 兼容层
 

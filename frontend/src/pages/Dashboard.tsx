@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Music, Users, Disc3, Clock, Play, Activity, RefreshCw, FileAudio } from 'lucide-react';
-import { libraryApi, scanApi } from '../api/client';
+import { Music, Users, Disc3, Clock, Play, Activity, RefreshCw, FileAudio, Square, Power } from 'lucide-react';
+import { libraryApi, scanApi, systemApi } from '../api/client';
 import { LibraryStats, ScanStatus, SongEntry } from '../types';
 import { useNavigate } from 'react-router-dom';
 
@@ -50,6 +50,33 @@ function Dashboard() {
       fetchScanStatus();
     } catch (error) {
       console.error('Failed to start scan:', error);
+    }
+  };
+
+  const handleStopAllTasks = async () => {
+    if (!confirm('确定要停止所有正在进行的后台任务吗？')) {
+      return;
+    }
+    try {
+      const result = await systemApi.stopAllTasks();
+      alert(result.message);
+      fetchScanStatus();
+    } catch (error) {
+      console.error('Failed to stop tasks:', error);
+      alert('停止任务失败');
+    }
+  };
+
+  const handleShutdownServer = async () => {
+    if (!confirm('确定要关闭服务吗？关闭后需要手动重启服务。')) {
+      return;
+    }
+    try {
+      const result = await systemApi.shutdownServer();
+      alert(result.message);
+    } catch (error) {
+      console.error('Failed to shutdown server:', error);
+      alert('关闭服务失败');
     }
   };
 
@@ -176,6 +203,29 @@ function Dashboard() {
             )}
           </div>
         )}
+      </div>
+
+      <div className="card p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Activity className="w-5 h-5 text-[#4a1942]" />
+          <h2 className="text-lg font-semibold text-white">系统控制</h2>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleStopAllTasks}
+            className="btn btn-secondary flex items-center gap-2"
+          >
+            <Square className="w-4 h-4" />
+            停止进程
+          </button>
+          <button
+            onClick={handleShutdownServer}
+            className="btn bg-red-600 hover:bg-red-700 text-white flex items-center gap-2"
+          >
+            <Power className="w-4 h-4" />
+            关闭服务
+          </button>
+        </div>
       </div>
 
       <div className="card p-6">

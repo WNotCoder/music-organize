@@ -31,8 +31,8 @@ function Playlists() {
     try {
       const playlist = await playlistApi.getPlaylistById(playlistId);
       const playlistSongIds = playlist.songs?.map(s => s.id) || [];
-      const result = await libraryApi.getSongs(0, 100);
-      const available = result.data.filter(s => !playlistSongIds.includes(s.id));
+      const result = await libraryApi.getSongEntries(0, 100);
+      const available = result.data.filter((s: { id: string }) => !playlistSongIds.includes(s.id));
       setAvailableSongs(available);
       setSelectedSongs([]);
     } catch (error) {

@@ -190,3 +190,15 @@ export const taskApi = {
     return response.data;
   },
 };
+
+export const systemApi = {
+  stopAllTasks: async (): Promise<{ success: boolean; stoppedCount: number; message: string }> => {
+    const response = await api.post('/system/stop-tasks');
+    return response.data;
+  },
+  
+  shutdownServer: async (): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post('/system/shutdown');
+    return response.data;
+  },
+};

@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Save, Server, FolderOpen, RefreshCw, Music } from 'lucide-react';
+import { Save, Server, FolderOpen, RefreshCw, Music, ChevronUp, ChevronDown, GripVertical, Fingerprint } from 'lucide-react';
 import { settingsApi } from '../api/client';
-import { Settings as SettingsType } from '../types';
+import { Settings as SettingsType, ScraperConfig, AcoustidConfig } from '../types';
+
+const SCRAPER_DISPLAY_NAMES: Record<string, string> = {
+  netease: '网易云音乐',
+  qqmusic: 'QQ音乐',
+  kugou: '酷狗音乐',
+  migu: '咪咕音乐',
+  musicbrainz: 'MusicBrainz',
+  douban: '豆瓣音乐',
+  spotify: 'Spotify',
+  itunes: 'iTunes',
+};
 
 function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
@@ -36,6 +47,56 @@ function Settings() {
   const handleChange = <K extends keyof SettingsType>(key: K, value: SettingsType[K]) => {
     if (settings) {
       setSettings({ ...settings, [key]: value });
+    }
+  };
+
+  const updateScrapers = (updatedScrapers: ScraperConfig[]) => {
+    if (settings) {
+      setSettings({ ...settings, scrapers: updatedScrapers });
+    }
+  };
+
+  const toggleScraper = (name: string) => {
+    const updatedScrapers = settings?.scrapers.map(scraper =>
+      scraper.name === name ? { ...scraper, enabled: !scraper.enabled } : scraper
+    );
+    if (updatedScrapers) {
+      updateScrapers(updatedScrapers);
+    }
+  };
+
+  const moveScraper = (index: number, direction: number) => {
+    if (!settings) return;
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= settings.scrapers.length) return;
+    
+    const updatedScrapers = [...settings.scrapers];
+    const temp = updatedScrapers[index];
+    updatedScrapers[index] = updatedScrapers[newIndex];
+    updatedScrapers[newIndex] = temp;
+    
+    updatedScrapers.forEach((scraper, i) => {
+      scraper.priority = i + 1;
+    });
+    
+    updateScrapers(updatedScrapers);
+  };
+
+  const updateScraperInterval = (name: string, interval: number) => {
+    const updatedScrapers = settings?.scrapers.map(scraper =>
+      scraper.name === name ? { ...scraper, requestInterval: interval } : scraper
+    );
+    if (updatedScrapers) {
+      updateScrapers(updatedScrapers);
+    }
+  };
+
+  const updateAcoustidConfig = (updates: Partial<AcoustidConfig>) => {
+    if (settings) {
+      setSettings({
+        ...settings,
+        acoustid: { ...settings.acoustid, ...updates }
+      });
     }
   };
 
@@ -172,6 +233,150 @@ function Settings() {
                   <option value=",">, (A, B)</option>
                   <option value=";">; (A; B)</option>
                 </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <Music className="w-5 h-5 text-[#4a1942]" />
+              <h2 className="text-lg font-semibold text-white">刮削器设置</h2>
+            </div>
+            
+            <div className="space-y-3">
+              {settings.scrapers.map((scraper, index) => (
+                <div
+                  key={scraper.name}
+                  className="flex items-center gap-4 p-3 bg-gray-800 rounded-lg"
+                >
+                  <button
+                    onClick={() => moveScraper(index, -1)}
+                    disabled={index === 0}
+                    className="p-1 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronUp className="w-4 h-4 text-gray-400" />
+                  </button>
+                  <button
+                    onClick={() => moveScraper(index, 1)}
+                    disabled={index === settings.scrapers.length - 1}
+                    className="p-1 rounded hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                  </button>
+                  <GripVertical className="w-4 h-4 text-gray-500" />
+                  <button
+                    onClick={() => toggleScraper(scraper.name)}
+                    className={`w-10 h-5 rounded-full transition-colors ${
+                      scraper.enabled ? 'bg-[#4a1942]' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div
+                      className={`w-4 h-4 bg-white rounded-full transition-transform ${
+                        scraper.enabled ? 'translate-x-5' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                  <span className="text-white flex-1">{SCRAPER_DISPLAY_NAMES[scraper.name] || scraper.name}</span>
+                  <span className="text-gray-400 text-sm">优先级: {scraper.priority}</span>
+                  <input
+                    type="number"
+                    value={scraper.requestInterval}
+                    onChange={(e) => updateScraperInterval(scraper.name, parseInt(e.target.value) || 1000)}
+                    className="input w-24 text-center"
+                    min="100"
+                    max="10000"
+                    placeholder="间隔(ms)"
+                  />
+                </div>
+              ))}
+            </div>
+            
+            <p className="text-gray-500 text-sm mt-4">
+              提示：刮削器将按照优先级顺序依次尝试，数字越小优先级越高。请求间隔用于避免被目标平台限流。
+            </p>
+          </div>
+
+          <div className="card p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <Fingerprint className="w-5 h-5 text-[#4a1942]" />
+              <h2 className="text-lg font-semibold text-white">Acoustid 配置</h2>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-white">启用 Acoustid 指纹匹配</p>
+                  <p className="text-gray-400 text-sm">通过音频指纹识别歌曲信息，提高标签准确性。需要安装 chromaprint (fpcalc)。</p>
+                </div>
+                <button
+                  onClick={() => updateAcoustidConfig({ enabled: !settings.acoustid.enabled })}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.acoustid.enabled ? 'bg-[#4a1942]' : 'bg-gray-600'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 bg-white rounded-full transition-transform ${
+                      settings.acoustid.enabled ? 'translate-x-6' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
+              
+              <div>
+                <label className="block text-gray-400 text-sm mb-2">API 密钥</label>
+                <input
+                  type="text"
+                  value={settings.acoustid.apiKey}
+                  onChange={(e) => updateAcoustidConfig({ apiKey: e.target.value })}
+                  className="input"
+                  placeholder="Acoustid API Key"
+                />
+                <p className="text-gray-500 text-xs mt-1">在 https://acoustid.org/api-key 免费获取 API 密钥</p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-400 text-sm mb-2">最小音频时长（秒）</label>
+                  <input
+                    type="number"
+                    value={settings.acoustid.minDuration}
+                    onChange={(e) => updateAcoustidConfig({ minDuration: parseInt(e.target.value) || 10 })}
+                    className="input"
+                    min="5"
+                    max="120"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-gray-400 text-sm mb-2">超时时间（毫秒）</label>
+                  <input
+                    type="number"
+                    value={settings.acoustid.timeout}
+                    onChange={(e) => updateAcoustidConfig({ timeout: parseInt(e.target.value) || 15000 })}
+                    className="input"
+                    min="5000"
+                    max="60000"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-gray-400 text-sm mb-2">置信度阈值</label>
+                <input
+                  type="range"
+                  value={settings.acoustid.confidenceThreshold}
+                  onChange={(e) => updateAcoustidConfig({ confidenceThreshold: parseFloat(e.target.value) })}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>0.0</span>
+                  <span>{settings.acoustid.confidenceThreshold.toFixed(2)}</span>
+                  <span>1.0</span>
+                </div>
+                <p className="text-gray-500 text-xs mt-1">低于此阈值的匹配结果将被忽略</p>
               </div>
             </div>
           </div>

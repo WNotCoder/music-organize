@@ -1,0 +1,16 @@
+{
+  "name": "music-organize",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "reset": "npm run stop && npm run cleandb && npm run dev",
+    "stop": "node -e \"process.exit(require('child_process').execSync('Get-Process | Where-Object { $_.ProcessName -match \\\"node\\\" } | Stop-Process -Force -ErrorAction SilentlyContinue', { shell: 'powershell.exe' }, (err) => 0))\"",
+    "cleandb": "node -e \"require('fs').existsSync('backend/data/music.db') && require('fs').unlinkSync('backend/data/music.db');\"",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

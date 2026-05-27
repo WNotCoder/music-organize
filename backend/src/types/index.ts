@@ -1,6 +1,7 @@
 export interface Artist {
   id: string;
   name: string;
+  coverPath: string | null;
   albumCount: number;
   songCount: number;
   createdAt: string;
@@ -20,8 +21,6 @@ export interface Album {
 export interface SongEntry {
   id: string;
   title: string;
-  artistId: string;
-  artistName: string;
   albumId: string;
   albumName: string;
   trackNumber: number | null;
@@ -29,6 +28,14 @@ export interface SongEntry {
   genre: string | null;
   year: number | null;
   fileCount: number;
+  createdAt: string;
+}
+
+export interface ArtistSongEntry {
+  id: string;
+  artistId: string;
+  entryId: string;
+  isPrimary: boolean;
   createdAt: string;
 }
 
@@ -56,6 +63,43 @@ export interface ScanDirectory {
   createdAt: string;
 }
 
+export interface ScraperConfig {
+  name: string;
+  enabled: boolean;
+  priority: number;
+  requestInterval: number; // 毫秒
+  timeout: number; // 超时时间（毫秒）
+  retryCount: number; // 重试次数
+  apiParams: Record<string, string>; // 自定义API参数
+}
+
+export interface ScraperUsageConfig {
+  tags: string[]; // 用于歌曲标签的刮削器名称列表
+  cover: string[]; // 用于封面的刮削器名称列表
+  lyrics: string[]; // 用于歌词的刮削器名称列表
+}
+
+export interface ConflictResolution {
+  strategy: 'original' | 'scraped' | 'manual'; // 信息冲突时的处理策略
+}
+
+export interface AcoustidConfig {
+  enabled: boolean; // 是否启用Acoustid指纹匹配
+  apiKey: string; // Acoustid API密钥
+  minDuration: number; // 最小音频时长（秒），低于此值不进行指纹匹配
+  timeout: number; // 请求超时时间（毫秒）
+  confidenceThreshold: number; // 置信度阈值，低于此值不使用匹配结果
+}
+
+export interface AcoustidMatchResult {
+  success: boolean;
+  title?: string;
+  artist?: string;
+  album?: string;
+  allMatched: boolean; // 三个信息是否全部匹配
+  confidence: number;
+}
+
 export interface Settings {
   storagePath: string;
   autoScanEnabled: boolean;
@@ -71,6 +115,10 @@ export interface Settings {
   artistSeparator: string;
   usePrimaryArtist: boolean;
   traditionalToSimplified: boolean;
+  scrapers: ScraperConfig[];
+  scraperUsage: ScraperUsageConfig;
+  conflictResolution: ConflictResolution;
+  acoustid: AcoustidConfig;
 }
 
 export interface ScanStatus {
@@ -100,5 +148,5 @@ export interface AddDirectoryRequest {
 export interface SearchResult {
   artists: Artist[];
   albums: Album[];
-  songs: Song[];
+  songEntries: SongEntry[];
 }

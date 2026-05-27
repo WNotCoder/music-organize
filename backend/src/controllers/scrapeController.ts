@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import { scrapeService } from '../services/scrapeService';
+import { albumRepository } from '../repositories/albumRepository';
+import { organizeService } from '../services/organizeService';
+import { settingsRepository } from '../repositories/settingsRepository';
 
 export const scrapeController = {
   async previewScrape(req: Request, res: Response) {
@@ -96,6 +99,57 @@ export const scrapeController = {
           { id: 'musicbrainz', name: 'MusicBrainz', description: '权威的音乐数据库', confidence: 0.8 },
           { id: 'douban', name: '豆瓣音乐', description: '中文专辑信息和封面', confidence: 0.75 },
         ],
+      });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  },
+
+  async fixMissingCovers(req: Request, res: Response) {
+    try {
+      const settings = await settingsRepository.get();
+      
+      if (!settings.coverArtEnabled) {
+        return res.status(400).json({ error: '封面艺术功能未启用' });
+      }
+
+      const albums = await albumRepository.getAll();
+      const albumsWithoutCovers = albums.filter(album => !album.coverPath);
+      
+      let successCount = 0;
+      let failedCount = 0;
+      let fileFallbackCount = 0;
+
+      for (const album of albumsWithoutCovers) {
+        let coverArt = await scrapeService.fetchCoverForAlbum(album.artistName, album.name);
+        
+        if (!coverArt) {
+          coverArt = await scrapeService.fetchCoverForAlbumFromFile(album.id);
+          if (coverArt) {
+            fileFallbackCount++;
+          }
+        }
+        
+        if (coverArt) {
+          const coverPath = await organizeService.saveCoverArt(album.artistName, album.name, coverArt);
+          if (coverPath) {
+            await albumRepository.update(album.id, { coverPath });
+            successCount++;
+          } else {
+            failedCount++;
+          }
+        } else {
+          failedCount++;
+        }
+      }
+
+      res.json({
+        totalAlbums: albums.length,
+        albumsWithoutCovers: albumsWithoutCovers.length,
+        successCount,
+        failedCount,
+        fileFallbackCount,
+        message: `封面修复完成，成功: ${successCount}（其中从文件提取: ${fileFallbackCount}），失败: ${failedCount}`,
       });
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });

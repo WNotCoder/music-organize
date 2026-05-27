@@ -1,9 +1,23 @@
 export interface Artist {
   id: string;
   name: string;
+  coverPath: string | null;
   albumCount: number;
   songCount: number;
   createdAt: string;
+}
+
+export interface Song {
+  id: string;
+  title: string;
+  artistId: string;
+  artistName: string;
+  albumId: string;
+  albumName: string;
+  trackNumber: number | null;
+  duration: number;
+  genre: string | null;
+  year: number | null;
 }
 
 export interface Album {
@@ -58,6 +72,21 @@ export interface ScanDirectory {
   createdAt: string;
 }
 
+export interface ScraperConfig {
+  name: string;
+  enabled: boolean;
+  priority: number;
+  requestInterval: number;
+}
+
+export interface AcoustidConfig {
+  enabled: boolean;
+  apiKey: string;
+  minDuration: number;
+  timeout: number;
+  confidenceThreshold: number;
+}
+
 export interface Settings {
   storagePath: string;
   autoScanEnabled: boolean;
@@ -73,6 +102,8 @@ export interface Settings {
   artistSeparator: string;
   usePrimaryArtist: boolean;
   traditionalToSimplified: boolean;
+  scrapers: ScraperConfig[];
+  acoustid: AcoustidConfig;
 }
 
 export interface ScanStatus {
@@ -107,6 +138,8 @@ export interface SearchResult {
 
 export interface LibraryStats {
   songCount: number;
+  entryCount: number;
+  fileCount: number;
   artistCount: number;
   albumCount: number;
 }

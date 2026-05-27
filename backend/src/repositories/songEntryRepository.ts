@@ -8,14 +8,13 @@ export const songEntryRepository = {
     
     const dataPromise = new Promise<SongEntry[]>((resolve, reject) => {
       db.all(`
-        SELECT se.id, se.title, se.artist_id as artistId, se.album_id as albumId,
+        SELECT se.id, se.title, se.album_id as albumId,
                se.track_number as trackNumber, se.duration, se.genre, se.year,
                se.file_count as fileCount, se.created_at as createdAt,
-               a.name as artistName, al.name as albumName
+               al.name as albumName
         FROM song_entries se
-        JOIN artists a ON se.artist_id = a.id
         JOIN albums al ON se.album_id = al.id
-        ORDER BY a.name, al.name, se.track_number
+        ORDER BY al.name, se.track_number
         LIMIT ? OFFSET ?
       `, [limit, offset], (err, rows) => {
         if (err) reject(err);
@@ -37,12 +36,11 @@ export const songEntryRepository = {
   getById: async (id: string): Promise<SongEntry | null> => {
     return new Promise((resolve, reject) => {
       db.get(`
-        SELECT se.id, se.title, se.artist_id as artistId, se.album_id as albumId,
+        SELECT se.id, se.title, se.album_id as albumId,
                se.track_number as trackNumber, se.duration, se.genre, se.year,
                se.file_count as fileCount, se.created_at as createdAt,
-               a.name as artistName, al.name as albumName
+               al.name as albumName
         FROM song_entries se
-        JOIN artists a ON se.artist_id = a.id
         JOIN albums al ON se.album_id = al.id
         WHERE se.id = ?
       `, [id], (err, row) => {
@@ -55,12 +53,11 @@ export const songEntryRepository = {
   getByAlbumId: async (albumId: string): Promise<SongEntry[]> => {
     return new Promise((resolve, reject) => {
       db.all(`
-        SELECT se.id, se.title, se.artist_id as artistId, se.album_id as albumId,
+        SELECT se.id, se.title, se.album_id as albumId,
                se.track_number as trackNumber, se.duration, se.genre, se.year,
                se.file_count as fileCount, se.created_at as createdAt,
-               a.name as artistName, al.name as albumName
+               al.name as albumName
         FROM song_entries se
-        JOIN artists a ON se.artist_id = a.id
         JOIN albums al ON se.album_id = al.id
         WHERE se.album_id = ?
         ORDER BY se.track_number
@@ -71,49 +68,29 @@ export const songEntryRepository = {
     });
   },
 
-  getByArtistId: async (artistId: string): Promise<SongEntry[]> => {
-    return new Promise((resolve, reject) => {
-      db.all(`
-        SELECT se.id, se.title, se.artist_id as artistId, se.album_id as albumId,
-               se.track_number as trackNumber, se.duration, se.genre, se.year,
-               se.file_count as fileCount, se.created_at as createdAt,
-               a.name as artistName, al.name as albumName
-        FROM song_entries se
-        JOIN artists a ON se.artist_id = a.id
-        JOIN albums al ON se.album_id = al.id
-        WHERE se.artist_id = ?
-        ORDER BY al.year DESC, al.name, se.track_number
-      `, [artistId], (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows as SongEntry[]);
-      });
-    });
-  },
-
-  getByTitleArtistAlbum: async (title: string, artistId: string, albumId: string): Promise<SongEntry | null> => {
+  getByTitleAlbum: async (title: string, albumId: string): Promise<SongEntry | null> => {
     return new Promise((resolve, reject) => {
       db.get(`
-        SELECT se.id, se.title, se.artist_id as artistId, se.album_id as albumId,
+        SELECT se.id, se.title, se.album_id as albumId,
                se.track_number as trackNumber, se.duration, se.genre, se.year,
                se.file_count as fileCount, se.created_at as createdAt,
-               a.name as artistName, al.name as albumName
+               al.name as albumName
         FROM song_entries se
-        JOIN artists a ON se.artist_id = a.id
         JOIN albums al ON se.album_id = al.id
-        WHERE se.title = ? AND se.artist_id = ? AND se.album_id = ?
-      `, [title, artistId, albumId], (err, row) => {
+        WHERE se.title = ? AND se.album_id = ?
+      `, [title, albumId], (err, row) => {
         if (err) reject(err);
         else resolve(row as SongEntry || null);
       });
     });
   },
 
-  create: async (data: { title: string; artistId: string; albumId: string; trackNumber: number | null; duration: number; genre: string | null; year: number | null }): Promise<SongEntry> => {
+  create: async (data: { title: string; albumId: string; trackNumber: number | null; duration: number; genre: string | null; year: number | null }): Promise<SongEntry> => {
     const id = uuidv4();
     return new Promise((resolve, reject) => {
       db.run(
-        'INSERT INTO song_entries (id, title, artist_id, album_id, track_number, duration, genre, year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, data.title, data.artistId, data.albumId, data.trackNumber, data.duration, data.genre, data.year],
+        'INSERT INTO song_entries (id, title, album_id, track_number, duration, genre, year) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [id, data.title, data.albumId, data.trackNumber, data.duration, data.genre, data.year],
         async function(err: any) {
           if (err) {
             console.error('SQLite error creating song entry:', err.message, err.code);
@@ -203,15 +180,17 @@ export const songEntryRepository = {
   search: async (query: string, limit = 20): Promise<SongEntry[]> => {
     return new Promise((resolve, reject) => {
       db.all(`
-        SELECT se.id, se.title, se.artist_id as artistId, se.album_id as albumId,
+        SELECT se.id, se.title, se.album_id as albumId,
                se.track_number as trackNumber, se.duration, se.genre, se.year,
                se.file_count as fileCount, se.created_at as createdAt,
-               a.name as artistName, al.name as albumName
+               al.name as albumName
         FROM song_entries se
-        JOIN artists a ON se.artist_id = a.id
         JOIN albums al ON se.album_id = al.id
+        JOIN artist_song_entry ase ON se.id = ase.entry_id
+        JOIN artists a ON ase.artist_id = a.id
         WHERE se.title LIKE ? OR a.name LIKE ? OR al.name LIKE ?
-        ORDER BY a.name, al.name, se.track_number
+        GROUP BY se.id
+        ORDER BY al.name, se.track_number
         LIMIT ?
       `, [`%${query}%`, `%${query}%`, `%${query}%`, limit], (err, rows) => {
         if (err) reject(err);

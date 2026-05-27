@@ -3,6 +3,7 @@ import { artistRepository } from '../repositories/artistRepository';
 import { albumRepository } from '../repositories/albumRepository';
 import { songEntryRepository } from '../repositories/songEntryRepository';
 import { songRepository } from '../repositories/songRepository';
+import { artistSongEntryRepository } from '../repositories/artistSongEntryRepository';
 
 export const libraryController = {
   async getArtists(req: Request, res: Response) {
@@ -25,8 +26,10 @@ export const libraryController = {
       const { id } = req.params;
       const artist = await artistRepository.getById(id);
       if (artist) {
-        const entries = await songEntryRepository.getByArtistId(id);
-        res.json({ ...artist, songEntries: entries });
+        const artistSongEntries = await artistSongEntryRepository.getByArtistId(id);
+        const entryIds = [...new Set(artistSongEntries.map(ase => ase.entryId))];
+        const entries = await Promise.all(entryIds.map(eid => songEntryRepository.getById(eid)));
+        res.json({ ...artist, songEntries: entries.filter((e): e is NonNullable<typeof e> => e !== null) });
       } else {
         res.status(404).json({ error: '艺术家不存在' });
       }
@@ -73,8 +76,11 @@ export const libraryController = {
       const { page = 0, limit = 20, artistId, albumId } = req.query;
       
       if (artistId) {
-        const entries = await songEntryRepository.getByArtistId(artistId as string);
-        res.json({ data: entries, total: entries.length, page: 0, limit: entries.length });
+        const artistSongEntries = await artistSongEntryRepository.getByArtistId(artistId as string);
+        const entryIds = [...new Set(artistSongEntries.map(ase => ase.entryId))];
+        const entries = await Promise.all(entryIds.map(eid => songEntryRepository.getById(eid)));
+        const validEntries = entries.filter((e): e is NonNullable<typeof e> => e !== null);
+        res.json({ data: validEntries, total: validEntries.length, page: 0, limit: validEntries.length });
       } else if (albumId) {
         const entries = await songEntryRepository.getByAlbumId(albumId as string);
         res.json({ data: entries, total: entries.length, page: 0, limit: entries.length });
@@ -93,7 +99,8 @@ export const libraryController = {
       const entry = await songEntryRepository.getById(id);
       if (entry) {
         const files = await songRepository.getByEntryId(id);
-        res.json({ ...entry, files });
+        const artists = await artistRepository.getByEntryId(id);
+        res.json({ ...entry, files, artists });
       } else {
         res.status(404).json({ error: '歌曲不存在' });
       }
@@ -121,6 +128,7 @@ export const libraryController = {
     try {
       const { id } = req.params;
       await songRepository.deleteByEntryId(id);
+      await artistSongEntryRepository.deleteByEntryId(id);
       const success = await songEntryRepository.delete(id);
       if (success) {
         res.json({ success: true });

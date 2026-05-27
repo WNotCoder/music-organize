@@ -146,8 +146,8 @@ router.get('/getAlbum.view', async (req: Request, res: Response) => {
         title: entry.title,
         track: entry.trackNumber,
         duration: entry.duration,
-        artist: entry.artistName,
-        artistId: entry.artistId,
+        artist: album.artistName,
+        artistId: album.artistId,
         album: entry.albumName,
         albumId: entry.albumId,
       }))
@@ -173,14 +173,16 @@ router.get('/getSong.view', async (req: Request, res: Response) => {
   const files = await songRepository.getByEntryId(id as string);
   const file = files[0];
   
+  const album = await albumRepository.getById(entry.albumId);
+  
   const result = {
     song: {
       id: entry.id,
       title: entry.title,
       track: entry.trackNumber,
       duration: entry.duration,
-      artist: entry.artistName,
-      artistId: entry.artistId,
+      artist: album?.artistName || 'Unknown',
+      artistId: album?.artistId || '',
       album: entry.albumName,
       albumId: entry.albumId,
       path: file?.filePath || '',
@@ -280,15 +282,18 @@ router.get('/search.view', async (req: Request, res: Response) => {
         artistId: al.artistId,
         coverArt: al.id,
       })),
-      song: entries.map(entry => ({
-        id: entry.id,
-        title: entry.title,
-        artist: entry.artistName,
-        artistId: entry.artistId,
-        album: entry.albumName,
-        albumId: entry.albumId,
-        duration: entry.duration,
-      }))
+      song: entries.map(entry => {
+        const album = albums.find(al => al.id === entry.albumId);
+        return {
+          id: entry.id,
+          title: entry.title,
+          artist: album?.artistName || 'Unknown',
+          artistId: album?.artistId || '',
+          album: entry.albumName,
+          albumId: entry.albumId,
+          duration: entry.duration,
+        };
+      })
     }
   };
   

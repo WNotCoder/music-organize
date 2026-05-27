@@ -15,8 +15,9 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Media files
+# Media and data files
 backend/media/
+backend/data/
 frontend/public/
 
 # IDE
@@ -24,3 +25,10 @@ frontend/public/
 .vscode/
 *.swp
 *.swo
+
+# Build outputs
+backend/dist/
+frontend/dist/
+
+# Other
+prompt.txt

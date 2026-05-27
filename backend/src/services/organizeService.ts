@@ -5,16 +5,18 @@ import { logger } from '../utils/logger';
 import { ParsedTag } from './tagService';
 
 export const organizeService = {
-  async generateTargetPath(tag: ParsedTag, originalFilePath: string): Promise<string> {
+  async generateTargetPath(tag: ParsedTag, originalFilePath: string, albumArtist?: string): Promise<string> {
     const settings = await settingsRepository.get();
     
     const extension = path.extname(originalFilePath);
+    
     const artist = settings.traditionalToSimplified ? this.simplifyTag(tag.artist) : tag.artist;
+    const folderArtist = albumArtist ? (settings.traditionalToSimplified ? this.simplifyTag(albumArtist) : albumArtist) : artist;
     const album = settings.traditionalToSimplified ? this.simplifyTag(tag.album) : tag.album;
     const title = settings.traditionalToSimplified ? this.simplifyTag(tag.title) : tag.title;
 
     const directoryPath = settings.fileStructureTemplate
-      .replace('{artist}', this.sanitizePath(artist))
+      .replace('{artist}', this.sanitizePath(folderArtist))
       .replace('{album}', this.sanitizePath(album))
       .replace('{title}', this.sanitizePath(title))
       .replace('{year}', tag.year?.toString() || 'Unknown Year')

@@ -2,6 +2,7 @@ import * as mm from 'music-metadata';
 import path from 'path';
 import axios from 'axios';
 import { logger } from '../utils/logger';
+import { settingsRepository } from '../repositories/settingsRepository';
 
 export interface ParsedTag {
   title: string;
@@ -12,6 +13,7 @@ export interface ParsedTag {
   genre: string | null;
   duration: number;
   coverArt?: Buffer;
+  coverUrl?: string;
   lyrics?: string;
 }
 
@@ -102,6 +104,7 @@ export const tagService = {
 
   async fetchFromMusicBrainz(artist: string, title: string): Promise<Partial<ParsedTag> | null> {
     try {
+      const settings = await settingsRepository.get();
       const response = await axios.get('https://musicbrainz.org/ws/2/recording', {
         params: {
           query: `artist:"${encodeURIComponent(artist)}" AND recording:"${encodeURIComponent(title)}"`,
@@ -117,17 +120,17 @@ export const tagService = {
       if (recordings && recordings.length > 0) {
         const recording = recordings[0];
         const result: Partial<ParsedTag> = {
-          title: recording.title,
+          title: this.stripHtmlTags(recording.title),
         };
 
         if (recording['release-list'] && recording['release-list'].length > 0) {
           const release = recording['release-list'][0];
-          result.album = release.title;
+          result.album = this.stripHtmlTags(release.title);
           result.year = release.date ? parseInt(release.date.split('-')[0]) : null;
         }
 
         if (recording['artist-credit'] && recording['artist-credit'].length > 0) {
-          result.artist = recording['artist-credit'].map((ac: { name: string }) => ac.name).join(', ');
+          result.artist = recording['artist-credit'].map((ac: { name: string }) => this.stripHtmlTags(ac.name)).join(settings.artistSeparator);
         }
 
         return result;
@@ -178,6 +181,11 @@ export const tagService = {
     return text.split('').map(char => map[char] || char).join('');
   },
 
+  stripHtmlTags(text: string): string {
+    if (!text) return text;
+    return text.replace(/<[^>]+>/g, '').trim();
+  },
+
   async fetchFromDouban(artist: string, title: string): Promise<ScrapeResult | null> {
     try {
       const response = await axios.get('https://api.douban.com/v2/music/search', {
@@ -195,9 +203,9 @@ export const tagService = {
         const music = result.musics[0];
         return {
           source: 'douban',
-          title: music.title || title,
-          artist: music.artist || artist,
-          album: music.album || '',
+          title: this.stripHtmlTags(music.title || title),
+          artist: this.stripHtmlTags(music.artist || artist),
+          album: this.stripHtmlTags(music.album || ''),
           year: music.attrs?.year ? parseInt(music.attrs.year) : undefined,
           genre: music.attrs?.genre,
           coverUrl: music.image,
@@ -232,9 +240,9 @@ export const tagService = {
         
         return {
           source: 'netease',
-          title: song.name || title,
-          artist: song.ar?.[0]?.name || artist,
-          album: song.al?.name || '',
+          title: this.stripHtmlTags(song.name || title),
+          artist: this.stripHtmlTags(song.ar?.[0]?.name || artist),
+          album: this.stripHtmlTags(song.al?.name || ''),
           trackNumber: song.no,
           year: albumInfo?.year,
           genre: albumInfo?.genre,
@@ -245,6 +253,248 @@ export const tagService = {
       }
     } catch (error) {
       logger.warn(`Failed to fetch from Netease for ${artist} - ${title}`, error);
+    }
+    return null;
+  },
+
+  async fetchFromQQMusic(artist: string, title: string): Promise<ScrapeResult | null> {
+    try {
+      const searchResponse = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+        params: {
+          format: 'json',
+          data: JSON.stringify({
+            comm: { ct: 24, cv: 0 },
+            search: {
+              query: `${artist} ${title}`,
+              page_num: 1,
+              page_size: 1,
+              search_type: 0,
+              sift: 0,
+            },
+          }),
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://y.qq.com/',
+        },
+      });
+
+      const result = searchResponse.data;
+      if (result && result.search && result.search.song && result.search.song.list && result.search.song.list.length > 0) {
+        const song = result.search.song.list[0];
+        
+        return {
+          source: 'qqmusic',
+          title: this.stripHtmlTags(song.songname || title),
+          artist: this.stripHtmlTags(song.singer?.[0]?.name || artist),
+          album: this.stripHtmlTags(song.albumname || ''),
+          trackNumber: song.songidx,
+          year: song.pubtime ? Math.floor(song.pubtime / 1000 / 60 / 60 / 24 / 365) + 1970 : undefined,
+          genre: undefined,
+          coverUrl: song.albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${song.albummid}.jpg` : undefined,
+          lyrics: await this.getQQMusicLyrics(song.songid),
+          confidence: 0.85,
+        };
+      }
+    } catch (error) {
+      logger.warn(`Failed to fetch from QQMusic for ${artist} - ${title}`, error);
+    }
+    return null;
+  },
+
+  async getQQMusicLyrics(songId: number): Promise<string | undefined> {
+    try {
+      const response = await axios.get('https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg', {
+        params: {
+          songmid: songId,
+          pcachetime: Date.now(),
+          g_tk: 5381,
+          loginUin: 0,
+          hostUin: 0,
+          format: 'json',
+          inCharset: 'utf8',
+          outCharset: 'utf-8',
+          notice: 0,
+          platform: 'yqq.json',
+          needNewCode: 0,
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://y.qq.com/',
+        },
+      });
+
+      const result = response.data;
+      if (result && result.lyric) {
+        return this.stripHtmlTags(Buffer.from(result.lyric, 'base64').toString('utf-8'));
+      }
+    } catch (error) {
+      logger.warn(`Failed to fetch QQMusic lyrics for song ${songId}`, error);
+    }
+    return undefined;
+  },
+
+  async fetchFromKuGou(artist: string, title: string): Promise<ScrapeResult | null> {
+    try {
+      const searchResponse = await axios.get('https://songsearch.kugou.com/song_search_v2', {
+        params: {
+          keyword: `${artist} ${title}`,
+          page: 1,
+          pagesize: 1,
+          userid: -1,
+          clientver: '',
+          platform: 'WebFilter',
+          tag: 'em',
+          filter: 2,
+          ismv: 0,
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://www.kugou.com/',
+        },
+      });
+
+      const result = searchResponse.data;
+      if (result && result.data && result.data.lists && result.data.lists.length > 0) {
+        const song = result.data.lists[0];
+        
+        return {
+          source: 'kugou',
+          title: this.stripHtmlTags(song.SongName || title),
+          artist: this.stripHtmlTags(song.SingerName || artist),
+          album: this.stripHtmlTags(song.AlbumName || ''),
+          trackNumber: parseInt(song.FileName?.split('-')?.[0]) || undefined,
+          year: undefined,
+          genre: undefined,
+          coverUrl: song.AlbumID ? `https://img.kugou.com/album/${song.AlbumID}/300/300.jpg` : undefined,
+          lyrics: await this.getKuGouLyrics(song.Hash),
+          confidence: 0.8,
+        };
+      }
+    } catch (error) {
+      logger.warn(`Failed to fetch from KuGou for ${artist} - ${title}`, error);
+    }
+    return null;
+  },
+
+  async getKuGouLyrics(hash: string): Promise<string | undefined> {
+    try {
+      const response = await axios.get('https://www.kugou.com/yy/index.php', {
+        params: {
+          r: 'play/getdata',
+          hash: hash,
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://www.kugou.com/',
+        },
+      });
+
+      const result = response.data;
+      if (result && result.data && result.data.lyrics) {
+        return this.stripHtmlTags(result.data.lyrics);
+      }
+    } catch (error) {
+      logger.warn(`Failed to fetch KuGou lyrics for hash ${hash}`, error);
+    }
+    return undefined;
+  },
+
+  async fetchFromMigu(artist: string, title: string): Promise<ScrapeResult | null> {
+    try {
+      const searchResponse = await axios.get('https://www.migu.cn/api/search/getSearchResult', {
+        params: {
+          keyword: `${artist} ${title}`,
+          pageNo: 1,
+          pageSize: 1,
+          type: 'song',
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://www.migu.cn/',
+        },
+      });
+
+      const result = searchResponse.data;
+      if (result && result.data && result.data.songs && result.data.songs.length > 0) {
+        const song = result.data.songs[0];
+        
+        return {
+          source: 'migu',
+          title: this.stripHtmlTags(song.songName || title),
+          artist: this.stripHtmlTags(song.singerName || artist),
+          album: this.stripHtmlTags(song.albumName || ''),
+          trackNumber: song.trackNum ? parseInt(song.trackNum) : undefined,
+          year: song.releaseDate ? parseInt(song.releaseDate.split('-')[0]) : undefined,
+          genre: undefined,
+          coverUrl: song.albumImg || undefined,
+          lyrics: await this.getMiguLyrics(song.songId),
+          confidence: 0.8,
+        };
+      }
+    } catch (error) {
+      logger.warn(`Failed to fetch from Migu for ${artist} - ${title}`, error);
+    }
+    return null;
+  },
+
+  async getMiguLyrics(songId: string): Promise<string | undefined> {
+    try {
+      const response = await axios.get(`https://www.migu.cn/api/song/getLyric`, {
+        params: {
+          songId: songId,
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://www.migu.cn/',
+        },
+      });
+
+      const result = response.data;
+      if (result && result.data && result.data.lyric) {
+        return this.stripHtmlTags(result.data.lyric);
+      }
+    } catch (error) {
+      logger.warn(`Failed to fetch Migu lyrics for song ${songId}`, error);
+    }
+    return undefined;
+  },
+
+  async fetchNeteaseAlbum(artist: string, album: string): Promise<ScrapeResult | null> {
+    try {
+      const searchResponse = await axios.get('https://music.163.com/api/search/pc', {
+        params: {
+          s: `${artist} ${album}`,
+          type: 10,
+          limit: 1,
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://music.163.com',
+        },
+      });
+
+      const result = searchResponse.data;
+      
+      if (!result || typeof result !== 'object' || result.result === false || result.result === null) {
+        return null;
+      }
+
+      if (result.result && result.result.albums && result.result.albums.length > 0) {
+        const albumResult = result.result.albums[0];
+        
+        return {
+          source: 'netease',
+          title: '',
+          artist: this.stripHtmlTags(albumResult.artists?.[0]?.name || artist),
+          album: this.stripHtmlTags(albumResult.name || album),
+          year: albumResult.publishTime ? Math.floor(albumResult.publishTime / 1000 / 60 / 60 / 24 / 365) + 1970 : undefined,
+          coverUrl: albumResult.picUrl,
+          confidence: 0.85,
+        };
+      }
+    } catch (error) {
+      logger.warn(`Failed to fetch album from Netease for ${artist} - ${album}`, error);
     }
     return null;
   },
@@ -282,7 +532,7 @@ export const tagService = {
 
       const result = response.data;
       if (result && result.lrc && result.lrc.lyric) {
-        return result.lrc.lyric;
+        return this.stripHtmlTags(result.lrc.lyric);
       }
     } catch (error) {
       logger.warn(`Failed to fetch lyrics for song ${songId}`, error);

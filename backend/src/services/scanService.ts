@@ -5,10 +5,11 @@ import { artistRepository } from '../repositories/artistRepository';
 import { albumRepository } from '../repositories/albumRepository';
 import { songEntryRepository } from '../repositories/songEntryRepository';
 import { songRepository } from '../repositories/songRepository';
+import { artistSongEntryRepository } from '../repositories/artistSongEntryRepository';
 import { settingsRepository } from '../repositories/settingsRepository';
 import { taskRepository } from '../repositories/taskRepository';
 import { tagService, ParsedTag } from './tagService';
-import { scrapeService, ScrapePreview } from './scrapeService';
+import { scrapeService, FullScrapeResult } from './scrapeService';
 import { organizeService } from './organizeService';
 import { logger } from '../utils/logger';
 import { Task } from '../types';
@@ -56,11 +57,18 @@ export const scanService = {
     logger.scan('Scan task status updated to running');
 
     try {
-      await this.executeScan(task.id);
+      const scanResult = await this.executeScan(task.id);
       await taskRepository.updateStatus(task.id, 'completed', 100, '扫描完成');
+      logger.taskSuccess('scan', task.id, {
+        totalFiles: scanResult.totalFiles,
+        processedFiles: scanResult.processedFiles,
+        successCount: scanResult.successCount,
+        failedCount: scanResult.failedCount
+      });
       return { success: true, message: '扫描任务已启动', taskId: task.id };
     } catch (error) {
       logger.error('扫描任务失败:', error);
+      logger.taskFailure('scan', task.id, error instanceof Error ? error : '扫描任务失败');
       await taskRepository.updateStatus(task.id, 'failed', 0, error instanceof Error ? error.message : '未知错误');
       return { success: false, message: '扫描任务失败', taskId: task.id };
     } finally {
@@ -69,7 +77,7 @@ export const scanService = {
     }
   },
 
-  async executeScan(taskId: string): Promise<void> {
+  async executeScan(taskId: string): Promise<{ totalFiles: number; processedFiles: number; successCount: number; failedCount: number }> {
     logger.scan('executeScan started with taskId:', taskId);
     
     const directories = await scanDirectoryRepository.getAll();
@@ -84,6 +92,8 @@ export const scanService = {
     
     let totalFiles = 0;
     let processedFiles = 0;
+    let successCount = 0;
+    let failedCount = 0;
     const musicFiles: string[] = [];
 
     for (const dir of directories) {
@@ -104,7 +114,7 @@ export const scanService = {
 
     if (totalFiles === 0) {
       logger.scan('No music files found, scan completed');
-      return;
+      return { totalFiles: 0, processedFiles: 0, successCount: 0, failedCount: 0 };
     }
 
     for (const filePath of musicFiles) {
@@ -117,6 +127,7 @@ export const scanService = {
         logger.debug(`Processing file: ${filePath}`);
         await this.processFile(filePath, settings);
         processedFiles++;
+        successCount++;
         
         const progress = Math.round((processedFiles / totalFiles) * 100);
         await taskRepository.updateStatus(taskId, 'running', progress, `正在处理: ${path.basename(filePath)}`);
@@ -124,11 +135,14 @@ export const scanService = {
         
         await new Promise(resolve => setTimeout(resolve, 10));
       } catch (error: any) {
+        processedFiles++;
+        failedCount++;
         logger.error(`处理文件失败 ${filePath}:`, { message: error.message, code: error.code, stack: error.stack });
       }
     }
     
-    logger.scan(`executeScan completed. Processed ${processedFiles} of ${totalFiles} files`);
+    logger.scan(`executeScan completed. Processed ${processedFiles} of ${totalFiles} files (Success: ${successCount}, Failed: ${failedCount})`);
+    return { totalFiles, processedFiles, successCount, failedCount };
   },
 
   async scanDirectory(dirPath: string): Promise<string[]> {
@@ -163,29 +177,29 @@ export const scanService = {
       return;
     }
 
-    let tags = await tagService.readTags(filePath);
+    const scrapeResult = await scrapeService.fullScrape(filePath);
+    const tags = scrapeResult.tags;
     
-    const fetched = await tagService.fetchFromMusicBrainz(tags.artist, tags.title);
-    if (fetched) {
-      tags = { ...tags, ...fetched };
+    const artistNames = this.splitArtists(tags.artist, settings.artistSeparator);
+    const artists = await artistRepository.findOrCreateMany(artistNames);
+    
+    const primaryArtist = artists[0];
+    if (!primaryArtist) {
+      logger.error(`无法创建艺术家: ${tags.artist}`);
+      return;
     }
 
-    let artist = await artistRepository.getByName(tags.artist);
-    if (!artist) {
-      artist = await artistRepository.create(tags.artist);
-    }
-
-    let album = await albumRepository.getByNameAndArtist(tags.album, artist.id);
+    let album = await albumRepository.getByNameAndArtist(tags.album, primaryArtist.id);
     if (!album) {
-      album = await albumRepository.create(tags.album, artist.id, tags.year || undefined);
+      album = await albumRepository.create(tags.album, primaryArtist.id, tags.year || undefined);
     }
 
     const fileStats = fs.statSync(filePath);
-    const targetPath = await organizeService.generateTargetPath(tags, filePath);
+    const targetPath = await organizeService.generateTargetPath(tags, filePath, primaryArtist.name);
     
     const finalPath = await organizeService.organizeFile(filePath, targetPath, settings.fileOrganizeMode);
 
-    let entry = await songEntryRepository.getByTitleArtistAlbum(tags.title, artist.id, album.id);
+    let entry = await songEntryRepository.getByTitleAlbum(tags.title, album.id);
     
     if (entry) {
       await songEntryRepository.incrementFileCount(entry.id);
@@ -193,7 +207,6 @@ export const scanService = {
     } else {
       entry = await songEntryRepository.create({
         title: tags.title,
-        artistId: artist.id,
         albumId: album.id,
         trackNumber: tags.trackNumber,
         duration: Math.round(tags.duration),
@@ -201,6 +214,8 @@ export const scanService = {
         year: tags.year,
       });
       logger.debug(`创建新歌曲条目: ${tags.title}`);
+      
+      await artistSongEntryRepository.createMany(artists.map(a => a.id), entry.id, 0);
     }
 
     await songRepository.create({
@@ -210,14 +225,52 @@ export const scanService = {
       duration: Math.round(tags.duration),
     });
 
-    if (settings.coverArtEnabled) {
-      const coverArt = await tagService.downloadCoverArt(tags.artist, tags.album);
+    if (settings.coverArtEnabled && !album.coverPath) {
+      let coverArt: Buffer | null = null;
+      
+      if (scrapeResult.coverArt) {
+        coverArt = scrapeResult.coverArt;
+      } else if (tags.coverUrl) {
+        coverArt = await scrapeService.downloadCoverFromUrl(tags.coverUrl);
+      } else {
+        coverArt = await tagService.downloadCoverArt(tags.artist, tags.album);
+      }
+      
       if (coverArt) {
         const coverPath = await organizeService.saveCoverArt(tags.artist, tags.album, coverArt);
         if (coverPath && album.coverPath !== coverPath) {
           await albumRepository.update(album.id, { coverPath });
         }
       }
+    }
+
+    if (scrapeResult.lyrics && settings.scraperUsage.lyrics.length > 0) {
+      await this.saveLyrics(finalPath, scrapeResult.lyrics);
+    }
+  },
+
+  splitArtists(artistString: string, separator: string): string[] {
+    if (!artistString) return [];
+    
+    const separators = [separator, '&', '\\', '/', ',', '、'];
+    let result = [artistString];
+    
+    for (const sep of separators) {
+      if (sep && sep.trim()) {
+        result = result.flatMap(s => s.split(new RegExp(`\\s*${sep.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`)));
+      }
+    }
+    
+    return [...new Set(result)].filter(a => a && a.trim());
+  },
+
+  async saveLyrics(filePath: string, lyrics: string): Promise<void> {
+    try {
+      const lyricPath = filePath.replace(/\.[^.]+$/, '.lrc');
+      fs.writeFileSync(lyricPath, lyrics, 'utf-8');
+      logger.debug(`Lyrics saved to: ${lyricPath}`);
+    } catch (error) {
+      logger.warn(`Failed to save lyrics for ${filePath}:`, error);
     }
   },
 
@@ -293,7 +346,9 @@ export const scanService = {
         });
 
         if (scrapePreview) {
-          const targetPath = await organizeService.generateTargetPath(scrapePreview.suggestedTags, filePath);
+          const artistNames = this.splitArtists(scrapePreview.suggestedTags.artist, settings.artistSeparator);
+          const primaryArtistName = artistNames[0] || scrapePreview.suggestedTags.artist;
+          const targetPath = await organizeService.generateTargetPath(scrapePreview.suggestedTags, filePath, primaryArtistName);
           
           items.push({
             filePath,
@@ -306,7 +361,9 @@ export const scanService = {
           });
         } else {
           const tags = await tagService.readTags(filePath);
-          const targetPath = await organizeService.generateTargetPath(tags, filePath);
+          const artistNames = this.splitArtists(tags.artist, settings.artistSeparator);
+          const primaryArtistName = artistNames[0] || tags.artist;
+          const targetPath = await organizeService.generateTargetPath(tags, filePath, primaryArtistName);
           
           items.push({
             filePath,
@@ -341,33 +398,39 @@ export const scanService = {
       try {
         const tags = item.suggestedTags;
 
-        let artist = await artistRepository.getByName(tags.artist);
-        if (!artist) {
-          artist = await artistRepository.create(tags.artist);
+        const artistNames = this.splitArtists(tags.artist, settings.artistSeparator);
+        const artists = await artistRepository.findOrCreateMany(artistNames);
+        
+        const primaryArtist = artists[0];
+        if (!primaryArtist) {
+          logger.error(`无法创建艺术家: ${tags.artist}`);
+          failedCount++;
+          continue;
         }
 
-        let album = await albumRepository.getByNameAndArtist(tags.album, artist.id);
+        let album = await albumRepository.getByNameAndArtist(tags.album, primaryArtist.id);
         if (!album) {
-          album = await albumRepository.create(tags.album, artist.id, tags.year || undefined);
+          album = await albumRepository.create(tags.album, primaryArtist.id, tags.year || undefined);
         }
 
         const fileStats = fs.statSync(item.filePath);
-        const finalPath = await organizeService.organizeFile(item.filePath, item.targetPath, settings.fileOrganizeMode);
+        const targetPath = await organizeService.generateTargetPath(tags, item.filePath, primaryArtist.name);
+        const finalPath = await organizeService.organizeFile(item.filePath, targetPath, settings.fileOrganizeMode);
 
-        let entry = await songEntryRepository.getByTitleArtistAlbum(tags.title, artist.id, album.id);
+        let entry = await songEntryRepository.getByTitleAlbum(tags.title, album.id);
         
         if (entry) {
           await songEntryRepository.incrementFileCount(entry.id);
         } else {
           entry = await songEntryRepository.create({
             title: tags.title,
-            artistId: artist.id,
             albumId: album.id,
             trackNumber: tags.trackNumber,
             duration: Math.round(tags.duration),
             genre: tags.genre,
             year: tags.year,
           });
+          await artistSongEntryRepository.createMany(artists.map(a => a.id), entry.id, 0);
         }
 
         await songRepository.create({
@@ -377,10 +440,26 @@ export const scanService = {
           duration: Math.round(tags.duration),
         });
 
-        if (settings.coverArtEnabled && tags.coverArt) {
-          const coverPath = await organizeService.saveCoverArt(tags.artist, tags.album, tags.coverArt);
-          if (coverPath && album.coverPath !== coverPath) {
-            await albumRepository.update(album.id, { coverPath });
+        if (settings.coverArtEnabled && !album.coverPath) {
+          let coverArt: Buffer | null = null;
+          
+          if (tags.coverUrl) {
+            coverArt = await scrapeService.downloadCoverFromUrl(tags.coverUrl);
+          }
+          
+          if (!coverArt && tags.coverArt) {
+            coverArt = tags.coverArt;
+          }
+          
+          if (!coverArt) {
+            coverArt = await tagService.downloadCoverArt(tags.artist, tags.album);
+          }
+          
+          if (coverArt) {
+            const coverPath = await organizeService.saveCoverArt(tags.artist, tags.album, coverArt);
+            if (coverPath && album.coverPath !== coverPath) {
+              await albumRepository.update(album.id, { coverPath });
+            }
           }
         }
 
